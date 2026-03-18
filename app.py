@@ -360,31 +360,14 @@ if pagina == "Home":
                 use_container_width=True,
             )
 
-        # Somma per manutenzione
-        st.markdown("**Somma importi per manutenzione (VERO / FALSO)**")
-        s_man = (
-            df_rip.groupby("manut_flag")["importo_stanziato"]
-            .sum()
-            .reset_index()
-        )
-        s_man["manutenzione"] = s_man["manut_flag"].map(
-            {True: "VERO (manutenzioni)", False: "FALSO (altri interventi)"}
-        )
-        s_man["Importo (€)"] = s_man["importo_stanziato"].map(fmt_eur)
-        st.dataframe(
-            s_man[["manutenzione", "Importo (€)"]],
-            use_container_width=True,
-        )
-
-        totale_generale = df_rip["importo_stanziato"].sum()
-        st.success(f"**Totale generale stanziato (dedup per istituto/determina/importo): {fmt_eur(totale_generale)}**")
-
         # ---------------------------------------------------
         # DETERMINE ACCORDO/SERVIZIO con scuole coinvolte e quota per scuola
         # ---------------------------------------------------
         st.subheader("📑 Determine Accordo/Servizio (pro-quota per scuola)")
 
         df_acc = df_filt[df_filt["tipologia_intervento"].str.lower() == "accordo/servizio"].copy()
+
+        tot_quota = 0.0
 
         if df_acc.empty:
             st.info("Nessuna determina per la tipologia 'Accordo/Servizio' nei filtri correnti.")
@@ -418,9 +401,36 @@ if pagina == "Home":
                 use_container_width=True,
             )
 
-            # Totale complessivo delle quote per scuola (somma delle quote per determina)
+            # Totale complessivo delle quote per scuola
             tot_quota = det_acc["importo_per_scuola"].sum()
             st.success(f"Totale complessivo quote Accordo/Servizio (somma quote per scuola): {fmt_eur(tot_quota)}")
+
+        # ---------------------------------------------------
+        # Somma per manutenzione (VERO / FALSO) usando tot_quota per manutenzioni
+        # ---------------------------------------------------
+        st.markdown("**Somma importi per manutenzione (VERO / FALSO)**")
+
+        s_man = (
+            df_rip.groupby("manut_flag")["importo_stanziato"]
+            .sum()
+            .reset_index()
+        )
+        s_man["manutenzione"] = s_man["manut_flag"].map(
+            {True: "VERO (manutenzioni)", False: "FALSO (altri interventi)"}
+        )
+
+        mask_vero = s_man["manutenzione"] == "VERO (manutenzioni)"
+        if mask_vero.any():
+            s_man.loc[mask_vero, "importo_stanziato"] = tot_quota
+
+        s_man["Importo (€)"] = s_man["importo_stanziato"].map(fmt_eur)
+        st.dataframe(
+            s_man[["manutenzione", "Importo (€)"]],
+            use_container_width=True,
+        )
+
+        totale_generale = s_man["importo_stanziato"].sum()
+        st.success(f"**Totale generale stanziato (con quote manutenzioni): {fmt_eur(totale_generale)}**")
 
     else:
         st.info("Colonna 'importo stanziato' non presente.")
