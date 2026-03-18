@@ -229,8 +229,6 @@ df["determina_norm"] = df["determina"].astype(str).str.strip().str.lower()
 df["manut_flag"] = df["manutenzioni"].astype(str).str.lower().eq("vero")
 df["tipologia_intervento"] = df["tipologia_intervento"].astype(str).str.strip()
 
-# NON tocchiamo df qui per i duplicati: la logica specializzata è solo nel riepilogo per tipologia.
-
 # -------------------------------------------------------
 # PULIZIA IMPORTI STANZIATI "€ 17.928,80"
 # -------------------------------------------------------
@@ -425,6 +423,29 @@ if pagina == "Home":
             somma_manut[["manutenzione", "Importo stanziato (€)"]],
             use_container_width=True,
         )
+
+        # Nuova tabella: totale stanziato per determina (una volta per determina)
+        st.markdown("**Totale importo stanziato per determina (una volta per determina)**")
+
+        df_det = df_filt.copy()
+        df_det["determina_norm"] = df_det["determina"].astype(str).str.strip().str.lower()
+
+        somma_det = (
+            df_det.groupby(["determina_norm", "determina"])["importo_stanziato"]
+            .sum()
+            .reset_index()
+        )
+        somma_det = somma_det.sort_values("importo_stanziato", ascending=False)
+
+        somma_det["Importo stanziato (€)"] = somma_det["importo_stanziato"].map(
+            lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
+
+        st.dataframe(
+            somma_det[["determina", "Importo stanziato (€)"]],
+            use_container_width=True,
+        )
+
     else:
         st.info("Colonna 'importo stanziato' non presente: riepilogo economico non calcolato.")
 
