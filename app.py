@@ -7,10 +7,12 @@ from reportlab.lib.styles import getSampleStyleSheet
 from pandas.errors import EmptyDataError, ParserError
 
 # -------------------------------------------------------
-# CONFIGURAZIONE
+# CONFIGURAZIONE BASE
 # -------------------------------------------------------
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Dashboard Interventi – Prov. Sulcis Iglesiente")
+
 st.title("📊 Dashboard Interventi Istituti Scolastici")
+st.caption("Provincia del Sulcis Iglesiente – interventi e manutenzioni sugli istituti scolastici")
 
 
 # -------------------------------------------------------
@@ -63,8 +65,9 @@ def load_uploaded_csv(uploaded_file, nome_log="file"):
 # -------------------------------------------------------
 # UPLOAD FILE
 # -------------------------------------------------------
-file_istituti = st.file_uploader("Carica file ISTITUTI", type="csv")
-file_interventi = st.file_uploader("Carica file INTERVENTI", type="csv")
+st.sidebar.subheader("📂 Caricamento dati")
+file_istituti = st.sidebar.file_uploader("File ISTITUTI", type="csv", key="upload_istituti")
+file_interventi = st.sidebar.file_uploader("File INTERVENTI", type="csv", key="upload_interventi")
 
 if not file_istituti or not file_interventi:
     st.info("Carica entrambi i file CSV (ISTITUTI e INTERVENTI) per visualizzare la dashboard.")
@@ -82,7 +85,6 @@ interventi.columns = interventi.columns.str.strip()
 # -------------------------------------------------------
 # RINOMINO COLONNE
 # -------------------------------------------------------
-# ISTITUTI: dal file SCU_Istituti-ELE_ISTITUTI.csv
 rename_map_istituti = {
     "Denominazione Immobile": "nome_istituto",
     "Localizzazione immobile": "indirizzo",
@@ -91,7 +93,6 @@ rename_map_istituti = {
 }
 istituti = istituti.rename(columns=rename_map_istituti)
 
-# INTERVENTI: in base a quanto usato finora
 rename_map_interventi = {
     "Determina": "determina",
     "Manutenzioni": "manutenzioni",
@@ -103,7 +104,6 @@ rename_map_interventi = {
 }
 interventi = interventi.rename(columns=rename_map_interventi)
 
-# se la colonna tipologia non esiste, la creo generica
 if "tipologia_intervento" not in interventi.columns:
     interventi["tipologia_intervento"] = "Non specificata"
 
@@ -131,14 +131,13 @@ if mancanti_istituti:
     st.stop()
 
 # -------------------------------------------------------
-# NORMALIZZAZIONE E FLAG MANUTENZIONI
+# NORMALIZZAZIONE / IMPORTI EURO
 # -------------------------------------------------------
 interventi["determina_norm"] = (
     interventi["determina"].astype(str).str.strip().str.lower()
 )
 interventi["manut_flag"] = interventi["manutenzioni"].astype(str).str.lower().eq("vero")
 
-# converto importi in numerico, se presenti
 for col_imp in ["importo_stanziato", "importo_stimato"]:
     if col_imp in interventi.columns:
         interventi[col_imp] = (
@@ -149,13 +148,23 @@ for col_imp in ["importo_stanziato", "importo_stimato"]:
         )
         interventi[col_imp] = pd.to_numeric(interventi[col_imp], errors="coerce")
 
-# deduplicazione per determina + manutenzione
 interventi = interventi.drop_duplicates(subset=["determina_norm", "manut_flag"])
 
 # -------------------------------------------------------
-# FILTRI GLOBALI
+# NAVIGAZIONE INTERNA (HOME + ISTITUTI)
 # -------------------------------------------------------
-st.sidebar.header("🔎 Filtri globali")
+lista_pagine = ["Home"]
+istituti_ordinati = sorted(interventi["nome_istituto"].dropna().unique())
+lista_pagine.extend(istituti_ordinati)
+
+st.sidebar.subheader("🧭 Navigazione")
+pagina = st.sidebar.radio("Vai a", lista_pagine, key="nav_radio")
+
+
+# -------------------------------------------------------
+# FILTRI GLOBALI (Comune, tipologia, manutenzioni)
+# -------------------------------------------------------
+st.sidebar.subheader("🔎 Filtri globali")
 
 lista_tipologie = sorted(interventi["tipologia_intervento"].dropna().unique())
 filtro_tipologia = st.sidebar.multiselect("Tipologia di intervento", lista_tipologie)
@@ -164,7 +173,7 @@ opzioni_manut = ["Tutti", "Solo manutenzioni", "Solo altri"]
 filtro_manut = st.sidebar.selectbox("Manutenzioni", opzioni_manut)
 
 lista_comuni = sorted(istituti["comune"].dropna().unique())
-filtro_comune = st.sidebar.multiselect("Comune (ISTITUTI)", lista_comuni)
+filtro_comune = st.sidebar.multiselect("Comune (Provincia del Sulcis Iglesiente)", lista_comuni)
 
 df = interventi.copy()
 
@@ -180,174 +189,211 @@ if filtro_comune:
     ist_filtrati = istituti[istituti["comune"].isin(filtro_comune)]
     df = df[df["nome_istituto"].isin(ist_filtrati["nome_istituto"])]
 
-# -------------------------------------------------------
-# DASHBOARD GENERALE – TUTTI GLI INTERVENTI
-# -------------------------------------------------------
-st.header("🏠 Dashboard generale – tutti gli interventi")
+df = df.merge(
+    istituti[["nome_istituto", "comune", "indirizzo"]],
+    on="nome_istituto",
+    how="left",
+)
 
 if df.empty:
     st.warning("Nessun intervento corrisponde ai filtri selezionati.")
     st.stop()
 
-# tabellone generale
-st.subheader("Elenco interventi (filtrati)")
-
-colonne_tab = [
-    "nome_istituto",
-    "comune",
-    "tipologia_intervento",
-    "manutenzioni",
-    "denominazione_intervento",
-    "determina",
-]
-if "importo_stanziato" in df.columns:
-    colonne_tab.append("importo_stanziato")
-if "importo_stimato" in df.columns:
-    colonne_tab.append("importo_stimato")
-
-# aggiungo comune unendo con ISTITUTI
-df = df.merge(
-    istituti[["nome_istituto", "comune"]],
-    on="nome_istituto",
-    how="left",
-)
-
-st.dataframe(df[colonne_tab], use_container_width=True)
 
 # -------------------------------------------------------
-# GRAFICI GENERALI + RIEPILOGO ECONOMICO
+# PAGINA HOME
 # -------------------------------------------------------
-col_g1, col_g2 = st.columns(2)
+if pagina == "Home":
+    st.header("🏠 Dashboard generale – Provincia del Sulcis Iglesiente")
 
-with col_g1:
-    st.subheader("Numero interventi per istituto")
-    conteggio_istituti = df.groupby("nome_istituto").size()
-    st.bar_chart(conteggio_istituti)
+    st.subheader("Elenco interventi (filtrati)")
+    colonne_tab = [
+        "nome_istituto",
+        "comune",
+        "tipologia_intervento",
+        "manutenzioni",
+        "denominazione_intervento",
+        "determina",
+    ]
+    if "importo_stanziato" in df.columns:
+        colonne_tab.append("importo_stanziato")
+    if "importo_stimato" in df.columns:
+        colonne_tab.append("importo_stimato")
 
-with col_g2:
-    st.subheader("Manutenzioni vs altri interventi")
-    n_manut = df[df["manut_flag"]].shape[0]
-    n_altri = df.shape[0] - n_manut
-    pie_df = pd.DataFrame(
-        {"Tipo": ["Manutenzioni", "Altri"], "Valore": [n_manut, n_altri]}
-    ).set_index("Tipo")
-    st.bar_chart(pie_df)
+    column_config = {}
+    if "importo_stimato" in df.columns:
+        column_config["importo_stimato"] = st.column_config.NumberColumn(
+            "Importo stimato",
+            format="€ %,.2f",
+        )
+    if "importo_stanziato" in df.columns:
+        column_config["importo_stanziato"] = st.column_config.NumberColumn(
+            "Importo stanziato",
+            format="€ %,.2f",
+        )
 
-st.subheader("💶 Riepilogo economico")
+    st.dataframe(
+        df[colonne_tab],
+        use_container_width=True,
+        column_config=column_config if column_config else None,
+    )
 
-col_e1, col_e2 = st.columns(2)
+    col_g1, col_g2 = st.columns(2)
 
-if "importo_stimato" in df.columns:
-    with col_e1:
-        st.markdown("**Somma importi stimati per istituto**")
-        somma_ist = df.groupby("nome_istituto")["importo_stimato"].sum().sort_values(ascending=False)
-        st.dataframe(somma_ist.to_frame("Importo stimato"), use_container_width=True)
+    with col_g1:
+        st.subheader("Numero interventi per istituto")
+        conteggio_istituti = df.groupby("nome_istituto").size()
+        st.bar_chart(conteggio_istituti)
 
-    with col_e2:
-        st.markdown("**Somma importi stimati per tipologia**")
-        somma_tip = df.groupby("tipologia_intervento")["importo_stimato"].sum().sort_values(ascending=False)
-        st.dataframe(somma_tip.to_frame("Importo stimato"), use_container_width=True)
+    with col_g2:
+        st.subheader("Manutenzioni vs altri interventi")
+        n_manut = df[df["manut_flag"]].shape[0]
+        n_altri = df.shape[0] - n_manut
+        pie_df = pd.DataFrame(
+            {"Tipo": ["Manutenzioni", "Altri"], "Valore": [n_manut, n_altri]}
+        ).set_index("Tipo")
+        st.bar_chart(pie_df)
+
+    st.subheader("💶 Riepilogo economico (importo stimato)")
+
+    if "importo_stimato" in df.columns:
+        col_e1, col_e2 = st.columns(2)
+
+        with col_e1:
+            st.markdown("**Somma importi stimati per istituto**")
+            somma_ist = (
+                df.groupby("nome_istituto")["importo_stimato"]
+                .sum()
+                .sort_values(ascending=False)
+            )
+            st.dataframe(
+                somma_ist.to_frame("Importo stimato (€)").style.format(
+                    {"Importo stimato (€)": "€ {:,.2f}".format}
+                ),
+                use_container_width=True,
+            )
+
+        with col_e2:
+            st.markdown("**Somma importi stimati per tipologia**")
+            somma_tip = (
+                df.groupby("tipologia_intervento")["importo_stimato"]
+                .sum()
+                .sort_values(ascending=False)
+            )
+            st.dataframe(
+                somma_tip.to_frame("Importo stimato (€)").style.format(
+                    {"Importo stimato (€)": "€ {:,.2f}".format}
+                ),
+                use_container_width=True,
+            )
+    else:
+        st.info("Colonna 'importo stimato' non presente: riepilogo economico non calcolato.")
+
+# -------------------------------------------------------
+# PAGINE ISTITUTO
+# -------------------------------------------------------
 else:
-    st.info("Colonna 'importo stimato' non presente: riepilogo economico non calcolato.")
+    istituto_sel = pagina
+    df_ist = df[df["nome_istituto"] == istituto_sel]
 
-# -------------------------------------------------------
-# SCHEDE ISTITUTI
-# -------------------------------------------------------
-st.header("🏫 Schede istituto")
+    st.header(f"🏫 {istituto_sel} – Provincia del Sulcis Iglesiente")
 
-istituti_unici = df["nome_istituto"].dropna().unique()
-if len(istituti_unici) == 0:
-    st.warning("Nessun istituto disponibile con gli attuali filtri.")
-    st.stop()
+    row_ist = istituti[istituti["nome_istituto"] == istituto_sel].head(1)
+    if not row_ist.empty:
+        col_info1, col_info2 = st.columns(2)
+        with col_info1:
+            st.markdown(f"**Comune:** {row_ist.iloc[0].get('comune', '')}")
+        with col_info2:
+            st.markdown(f"**Indirizzo:** {row_ist.iloc[0].get('indirizzo', '')}")
 
-istituto_sel = st.selectbox("Seleziona istituto", sorted(istituti_unici))
+    st.subheader("📋 Interventi (tutti)")
 
-df_ist = df[df["nome_istituto"] == istituto_sel]
+    colonne_base = [
+        "tipologia_intervento",
+        "manutenzioni",
+        "denominazione_intervento",
+        "determina",
+    ]
+    if "importo_stanziato" in df_ist.columns:
+        colonne_base.append("importo_stanziato")
+    if "importo_stimato" in df_ist.columns:
+        colonne_base.append("importo_stimato")
 
-st.subheader(f"📍 {istituto_sel}")
+    column_config_ist = {}
+    if "importo_stimato" in df_ist.columns:
+        column_config_ist["importo_stimato"] = st.column_config.NumberColumn(
+            "Importo stimato",
+            format="€ %,.2f",
+        )
+    if "importo_stanziato" in df_ist.columns:
+        column_config_ist["importo_stanziato"] = st.column_config.NumberColumn(
+            "Importo stanziato",
+            format="€ %,.2f",
+        )
 
-row_ist = istituti[istituti["nome_istituto"] == istituto_sel].head(1)
-if not row_ist.empty:
-    col_info1, col_info2 = st.columns(2)
-    with col_info1:
-        st.markdown(f"**Comune:** {row_ist.iloc[0].get('comune', '')}")
-    with col_info2:
-        st.markdown(f"**Indirizzo:** {row_ist.iloc[0].get('indirizzo', '')}")
+    st.dataframe(
+        df_ist[colonne_base],
+        use_container_width=True,
+        column_config=column_config_ist if column_config_ist else None,
+    )
 
-# tabella interventi istituto
-st.subheader("📋 Interventi (tutti)")
+    st.subheader("🛠️ Interventi di manutenzione")
 
-colonne_base = [
-    "tipologia_intervento",
-    "manutenzioni",
-    "denominazione_intervento",
-    "determina",
-]
-if "importo_stanziato" in df_ist.columns:
-    colonne_base.append("importo_stanziato")
-if "importo_stimato" in df_ist.columns:
-    colonne_base.append("importo_stimato")
+    df_manut = df_ist[df_ist["manut_flag"]]
+    if df_manut.empty:
+        st.info("Nessuna manutenzione per questo istituto.")
+    else:
+        st.dataframe(
+            df_manut[colonne_base],
+            use_container_width=True,
+            column_config=column_config_ist if column_config_ist else None,
+        )
 
-st.dataframe(df_ist[colonne_base], use_container_width=True)
+    st.subheader("📊 Grafici istituto")
 
-# tabella manutenzioni separata
-st.subheader("🛠️ Interventi di manutenzione")
+    col_gi1, col_gi2 = st.columns(2)
 
-df_manut = df_ist[df_ist["manut_flag"]]
-if df_manut.empty:
-    st.info("Nessuna manutenzione per questo istituto.")
-else:
-    st.dataframe(df_manut[colonne_base], use_container_width=True)
+    with col_gi1:
+        st.markdown("**Interventi per tipologia**")
+        per_tipo = df_ist.groupby("tipologia_intervento").size()
+        st.bar_chart(per_tipo)
 
-# grafici per istituto
-st.subheader("📊 Grafici istituto")
+    with col_gi2:
+        st.markdown("**Manutenzioni vs altri**")
+        n_manut_ist = df_ist[df_ist["manut_flag"]].shape[0]
+        n_altri_ist = df_ist.shape[0] - n_manut_ist
+        pie_ist = pd.DataFrame(
+            {"Tipo": ["Manutenzioni", "Altri"], "Valore": [n_manut_ist, n_altri_ist]}
+        ).set_index("Tipo")
+        st.bar_chart(pie_ist)
 
-col_gi1, col_gi2 = st.columns(2)
+    def crea_pdf(data, nome):
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer)
+        styles = getSampleStyleSheet()
 
-with col_gi1:
-    st.markdown("**Interventi per tipologia**")
-    per_tipo = df_ist.groupby("tipologia_intervento").size()
-    st.bar_chart(per_tipo)
+        elements = []
+        elements.append(Paragraph(f"Report Istituto: {nome}", styles["Title"]))
+        elements.append(Spacer(1, 12))
 
-with col_gi2:
-    st.markdown("**Manutenzioni vs altri**")
-    n_manut_ist = df_ist[df_ist["manut_flag"]].shape[0]
-    n_altri_ist = df_ist.shape[0] - n_manut_ist
-    pie_ist = pd.DataFrame(
-        {"Tipo": ["Manutenzioni", "Altri"], "Valore": [n_manut_ist, n_altri_ist]}
-    ).set_index("Tipo")
-    st.bar_chart(pie_ist)
+        for _, row in data.iterrows():
+            txt = str(row["denominazione_intervento"])
+            if row["manut_flag"]:
+                txt += " (Manutenzione)"
+            if "importo_stimato" in row and pd.notna(row["importo_stimato"]):
+                txt += f" – Importo stimato: {row['importo_stimato']:.2f} €"
+            elements.append(Paragraph(txt, styles["Normal"]))
+            elements.append(Spacer(1, 6))
 
-# -------------------------------------------------------
-# PDF PER ISTITUTO
-# -------------------------------------------------------
-def crea_pdf(data, nome):
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer)
-    styles = getSampleStyleSheet()
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
 
-    elements = []
-    elements.append(Paragraph(f"Report Istituto: {nome}", styles["Title"]))
-    elements.append(Spacer(1, 12))
+    pdf = crea_pdf(df_ist, istituto_sel)
 
-    for _, row in data.iterrows():
-        txt = str(row["denominazione_intervento"])
-        if row["manut_flag"]:
-            txt += " (Manutenzione)"
-        if "importo_stimato" in row and pd.notna(row["importo_stimato"]):
-            txt += f" – Importo stimato: {row['importo_stimato']:.2f} €"
-        elements.append(Paragraph(txt, styles["Normal"]))
-        elements.append(Spacer(1, 6))
-
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
-
-pdf = crea_pdf(df_ist, istituto_sel)
-
-st.download_button(
-    label="📄 Scarica report PDF istituto",
-    data=pdf,
-    file_name=f"report_{istituto_sel}.pdf",
-    mime="application/pdf",
-)
+    st.download_button(
+        label="📄 Scarica report PDF istituto",
+        data=pdf,
+        file_name=f"report_{istituto_sel}.pdf",
+        mime="application/pdf",
+    )
