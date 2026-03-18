@@ -94,13 +94,14 @@ with col_title:
         unsafe_allow_html=True,
     )
 
+
 # -------------------------------------------------------
 # LETTURA CSV CARICATO (ISTITUTI / INTERVENTI)
 # -------------------------------------------------------
 def load_uploaded_csv(uploaded_file, nome_log="file"):
     if uploaded_file is None:
         st.error(f"Nessun file caricato per {nome_log}.")
-    ...
+        return pd.DataFrame()
 
     try:
         uploaded_file.seek(0)
@@ -137,6 +138,7 @@ def load_uploaded_csv(uploaded_file, nome_log="file"):
     except Exception as e:
         st.error(f"{nome_log}: errore imprevisto: {e}")
         return pd.DataFrame()
+
 
 # -------------------------------------------------------
 # UPLOAD FILE
@@ -221,7 +223,7 @@ df = interventi.merge(
 )
 
 # -------------------------------------------------------
-# NORMALIZZAZIONE FLAG MANUTENZIONI E DEDUP
+# NORMALIZZAZIONE FLAG MANUTENZIONI
 # -------------------------------------------------------
 df["determina_norm"] = df["determina"].astype(str).str.strip().str.lower()
 df["manut_flag"] = df["manutenzioni"].astype(str).str.lower().eq("vero")
@@ -245,9 +247,6 @@ def pulisci_importo(val):
 
 if "importo_stanziato" in df.columns:
     df["importo_stanziato"] = df["importo_stanziato"].apply(pulisci_importo)
-
-# dedup globale: stessa determina_norm e stesso importo_stanziato -> una sola riga
-df = df.drop_duplicates(subset=["determina_norm", "importo_stanziato"])
 
 # -------------------------------------------------------
 # NAVIGAZIONE INTERNA
@@ -346,7 +345,6 @@ if pagina == "Home":
     if "importo_stanziato" in df_filt.columns:
         col_e1, col_e2 = st.columns(2)
 
-        # Somma per istituto
         with col_e1:
             st.markdown("**Somma importi stanziati per istituto**")
             somma_ist = (
@@ -363,16 +361,42 @@ if pagina == "Home":
                 use_container_width=True,
             )
 
-        # Somma per tipologia (dedup già applicato per tutte, compresi Accordo/Servizio)
         with col_e2:
             st.markdown("**Somma importi stanziati per tipologia**")
 
-            somma_tip = (
-                df_filt.groupby("tipologia_intervento")["importo_stanziato"]
+            df_tmp = df_filt.copy()
+            df_tmp["tipologia_intervento"] = df_tmp["tipologia_intervento"].astype(str).str.strip()
+            df_tmp["determina_norm"] = df_tmp["determina"].astype(str).str.strip().str.lower()
+
+            # Tipologie diverse da Accordo/Servizio: somma normale
+            mask_other = ~df_tmp["tipologia_intervento"].str.lower().eq("accordo/servizio")
+            somma_other = (
+                df_tmp[mask_other]
+                .groupby("tipologia_intervento")["importo_stanziato"]
                 .sum()
-                .sort_values(ascending=False)
                 .reset_index()
             )
+
+            # Accordo/Servizio: somma per determina (una volta per determina) e poi per tipologia
+            mask_acc = df_tmp["tipologia_intervento"].str.lower().eq("accordo/servizio")
+            df_acc = df_tmp[mask_acc].copy()
+
+            if not df_acc.empty:
+                acc_per_det = (
+                    df_acc.groupby(["determina_norm", "tipologia_intervento"])["importo_stanziato"]
+                    .sum()
+                    .reset_index()
+                )
+                somma_acc = (
+                    acc_per_det.groupby("tipologia_intervento")["importo_stanziato"]
+                    .sum()
+                    .reset_index()
+                )
+                somma_tip = pd.concat([somma_other, somma_acc], ignore_index=True)
+            else:
+                somma_tip = somma_other
+
+            somma_tip = somma_tip.sort_values("importo_stanziato", ascending=False).reset_index(drop=True)
 
             somma_tip["Importo stanziato (€)"] = somma_tip["importo_stanziato"].map(
                 lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -383,7 +407,6 @@ if pagina == "Home":
                 use_container_width=True,
             )
 
-        # Somma per manutenzione
         st.markdown("**Somma importi stanziati per manutenzione (VERO/FALSO)**")
         somma_manut = (
             df_filt.groupby("manut_flag")["importo_stanziato"]
@@ -401,19 +424,8 @@ if pagina == "Home":
             use_container_width=True,
         )
 
-        # Somma specifica degli Accordo/Servizio (con regola "una volta per determina/importo")
-        st.markdown("**Somma importi stanziati per Accordo/Servizio (una volta per determina/importo)**")
-        df_acc = df_filt[df_filt["tipologia_intervento"].str.lower().eq("accordo/servizio")].copy()
-        if df_acc.empty:
-            st.info("Nessun intervento di tipologia 'Accordo/Servizio' nei filtri correnti.")
-        else:
-            # grazie al drop_duplicates globale, qui ogni (determina_norm, importo_stanziato) è già unico
-            totale_acc = df_acc["importo_stanziato"].sum()
-            totale_acc_fmt = f"€ {totale_acc:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            st.markdown(f"Totale Accordo/Servizio: **{totale_acc_fmt}**")
-
-        # Totale per determina (una volta per determina/importo)
-        st.markdown("**Totale importo stanziato per determina (una volta per determina/importo)**")
+        # Nuova tabella: totale stanziato per determina (una volta per determina)
+        st.markdown("**Totale importo stanziato per determina (una volta per determina)**")
 
         df_det = df_filt.copy()
         df_det["determina_norm"] = df_det["determina"].astype(str).str.strip().str.lower()
