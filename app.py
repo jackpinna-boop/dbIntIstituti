@@ -103,7 +103,6 @@ def df_riepilogo(df_source: pd.DataFrame) -> pd.DataFrame:
         return df_source
     return df_source.drop_duplicates(subset=["codice", "determina_norm", "importo_stanziato"])
 
-
 # -------------------------------------------------------
 # LETTURA CSV
 # -------------------------------------------------------
@@ -346,7 +345,7 @@ if pagina == "Home":
                 use_container_width=True,
             )
 
-        # Somma per tipologia (incluso Accordo/Servizio) con regola duplicati
+        # Somma per tipologia
         with col_e2:
             st.markdown("**Somma importi per tipologia (dedup determina/importo per istituto)**")
             s_tip = (
@@ -377,7 +376,7 @@ if pagina == "Home":
             use_container_width=True,
         )
 
-        # Totale per determina (stessa determina_norm + importo, ma per istituto già dedup)
+        # Totale per determina
         st.markdown("**Totale importo stanziato per determina**")
         s_det = (
             df_rip.groupby(["determina_norm", "determina"])["importo_stanziato"]
@@ -393,6 +392,44 @@ if pagina == "Home":
 
         totale_generale = df_rip["importo_stanziato"].sum()
         st.success(f"**Totale generale stanziato (dedup per istituto/determina/importo): {fmt_eur(totale_generale)}**")
+
+        # ---------------------------------------------------
+        # DETERMINE ACCORDO/SERVIZIO con scuole coinvolte
+        # ---------------------------------------------------
+        st.subheader("📑 Determine Accordo/Servizio (una sola volta per determina/importo/istituto)")
+
+        df_acc = df_filt[df_filt["tipologia_intervento"].str.lower() == "accordo/servizio"].copy()
+
+        if df_acc.empty:
+            st.info("Nessuna determina per la tipologia 'Accordo/Servizio' nei filtri correnti.")
+        else:
+            df_acc["determina_norm"] = df_acc["determina"].astype(str).str.strip().str.lower()
+
+            # dedup per istituto/determina/importo
+            df_acc_uni = df_acc.drop_duplicates(
+                subset=["codice", "determina_norm", "importo_stanziato"]
+            )
+
+            # aggrego per determina: somma importi + numero scuole distinte
+            det_acc = (
+                df_acc_uni.groupby(["determina_norm", "determina"])
+                .agg(
+                    importo_stanziato=("importo_stanziato", "sum"),
+                    numero_scuole=("codice", "nunique"),
+                )
+                .reset_index()
+                .sort_values("importo_stanziato", ascending=False)
+            )
+
+            det_acc["Importo (€)"] = det_acc["importo_stanziato"].map(fmt_eur)
+
+            st.dataframe(
+                det_acc[["determina", "numero_scuole", "Importo (€)"]],
+                use_container_width=True,
+            )
+
+            tot_acc = df_acc_uni["importo_stanziato"].sum()
+            st.success(f"Totale Accordo/Servizio (dedup determine): {fmt_eur(tot_acc)}")
 
     else:
         st.info("Colonna 'importo stanziato' non presente.")
