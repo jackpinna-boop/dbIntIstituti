@@ -9,34 +9,40 @@ st.set_page_config(layout="wide")
 
 st.title("📊 Dashboard Istituti Scolastici")
 
-# Upload
+# ---------------- FUNZIONE LETTURA CSV ----------------
+def load_csv(file):
+    try:
+        return pd.read_csv(file, sep=';', encoding='utf-8', engine='python')
+    except:
+        try:
+            return pd.read_csv(file, sep=';', encoding='latin1', engine='python')
+        except:
+            return pd.read_csv(file, sep=',', encoding='latin1', engine='python')
+
+
+# ---------------- UPLOAD ----------------
 file_istituti = st.file_uploader("Carica file ISTITUTI", type="csv")
 file_complessi = st.file_uploader("Carica file INTERVENTI", type="csv")
 
 if file_istituti and file_complessi:
-    def load_csv(file):
-        try:
-            return pd.read_csv(file, sep=';', encoding='utf-8')
-        except:
-            try:
-                return pd.read_csv(file, sep=';', encoding='latin1')
-            except:
-                return pd.read_csv(file, sep=',', encoding='latin1')
 
-istituti = load_csv(file_istituti)
-complessi = load_csv(file_complessi)
+    istituti = load_csv(file_istituti)
+    complessi = load_csv(file_complessi)
 
-    # Normalizzazione
+    # ---------------- NORMALIZZAZIONE ----------------
     complessi["determina_norm"] = complessi["determina"].astype(str).str.strip().str.lower()
     complessi["manut_flag"] = complessi["manutenzioni"] == "vero"
 
-    # Deduplicazione
+    # ---------------- DEDUPLICAZIONE ----------------
     complessi = complessi.drop_duplicates(subset=["determina_norm", "manut_flag"])
 
     # ---------------- FILTRI ----------------
     st.sidebar.header("🔎 Filtri")
 
-    comuni = sorted(istituti.get("comune", pd.Series()).dropna().unique())
+    comuni = []
+    if "comune" in istituti.columns:
+        comuni = sorted(istituti["comune"].dropna().unique())
+
     filtro_comune = st.sidebar.multiselect("Comune", comuni)
 
     filtro_manut = st.sidebar.selectbox(
@@ -64,7 +70,7 @@ complessi = load_csv(file_complessi)
 
     st.map(mappa_df[["lat", "lon"]])
 
-    # ---------------- GLOBALI ----------------
+    # ---------------- STATISTICHE GLOBALI ----------------
     st.header("📊 Statistiche globali")
 
     interventi = df.groupby("nome istituto").size()
@@ -87,7 +93,7 @@ complessi = load_csv(file_complessi)
         st.subheader("Distribuzione")
         st.bar_chart(pie)
 
-    # ---------------- DETTAGLIO ----------------
+    # ---------------- DETTAGLIO ISTITUTO ----------------
     st.header("🏫 Dettaglio istituto")
 
     istituto_sel = st.selectbox(
@@ -98,7 +104,7 @@ complessi = load_csv(file_complessi)
     if istituto_sel:
         df_sel = df[df["nome istituto"] == istituto_sel]
 
-        st.subheader(istituto_sel)
+        st.subheader(f"📍 {istituto_sel}")
 
         col1, col2 = st.columns(2)
 
@@ -116,22 +122,23 @@ complessi = load_csv(file_complessi)
 
             st.bar_chart(pie)
 
-        st.subheader("Interventi")
+        # ---------------- ELENCO INTERVENTI ----------------
+        st.subheader("📋 Elenco interventi")
 
-        for _, r in df_sel.iterrows():
-            st.write(
-                f"{r['denominazione intervento']} "
-                + ("🟢 Manutenzione" if r["manut_flag"] else "")
-            )
+        for _, row in df_sel.iterrows():
+            testo = row["denominazione intervento"]
+            if row["manut_flag"]:
+                testo += " 🟢 Manutenzione"
+            st.write(testo)
 
-        # PDF
+        # ---------------- PDF ----------------
         def crea_pdf(data, nome):
             buffer = BytesIO()
             doc = SimpleDocTemplate(buffer)
             styles = getSampleStyleSheet()
 
             elements = []
-            elements.append(Paragraph(f"Report: {nome}", styles['Title']))
+            elements.append(Paragraph(f"Report Istituto: {nome}", styles['Title']))
             elements.append(Spacer(1, 12))
 
             for _, row in data.iterrows():
@@ -148,8 +155,8 @@ complessi = load_csv(file_complessi)
         pdf = crea_pdf(df_sel, istituto_sel)
 
         st.download_button(
-            "📄 Scarica PDF",
-            pdf,
+            label="📄 Scarica report PDF",
+            data=pdf,
             file_name=f"report_{istituto_sel}.pdf",
             mime="application/pdf"
         )
