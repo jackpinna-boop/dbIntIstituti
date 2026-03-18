@@ -14,15 +14,14 @@ file_istituti = st.file_uploader("Carica file ISTITUTI", type="csv")
 file_complessi = st.file_uploader("Carica file INTERVENTI", type="csv")
 
 if file_istituti and file_complessi:
-
     def load_csv(file):
-    try:
-        return pd.read_csv(file, sep=';', encoding='utf-8')
-    except:
         try:
-            return pd.read_csv(file, sep=';', encoding='latin1')
+            return pd.read_csv(file, sep=';', encoding='utf-8')
         except:
-            return pd.read_csv(file, sep=',', encoding='latin1')
+            try:
+                return pd.read_csv(file, sep=';', encoding='latin1')
+            except:
+                return pd.read_csv(file, sep=',', encoding='latin1')
 
 istituti = load_csv(file_istituti)
 complessi = load_csv(file_complessi)
