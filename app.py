@@ -108,6 +108,7 @@ rename_map_interventi = {
     "Determina": "determina",
     "Manutenzioni": "manutenzioni",
     "Tipologia di intervento": "tipologia_intervento",
+    "RUP": "rup",
     "importo stanziato": "importo_stanziato",
 }
 interventi = interventi.rename(columns=rename_map_interventi)
@@ -232,6 +233,7 @@ if pagina == "Home":
         "comune",
         "tipologia_intervento",
         "manutenzioni",
+        "rup",
         "denominazione_intervento",
         "determina",
     ]
@@ -346,6 +348,7 @@ else:
     colonne_base = [
         "tipologia_intervento",
         "manutenzioni",
+        "rup",
         "denominazione_intervento",
         "determina",
     ]
@@ -366,7 +369,7 @@ else:
     )
 
     # 2) INTERVENTI DI MANUTENZIONE (VERO)
-    st.subheader("🛠️ Interventi di manutenzione")
+    st.subheader("🛠️ Interventi di manutenzione (VERO)")
 
     df_manut = df_ist[df_ist["manut_flag"]]
     if df_manut.empty:
@@ -379,7 +382,7 @@ else:
         )
 
     # 3) INTERVENTI NON DI MANUTENZIONE (FALSO / altro)
-    st.subheader("📋 Interventi di Investimenti")
+    st.subheader("📋 Interventi diversi dalle manutenzioni (FALSO)")
 
     df_non_manut = df_ist[~df_ist["manut_flag"]]
     if df_non_manut.empty:
@@ -410,7 +413,7 @@ else:
         st.bar_chart(pie_ist)
 
     # ---------------------------------------------------
-    # PDF COMPLETO PER ISTITUTO (importo stanziato)
+    # PDF COMPLETO PER ISTITUTO (importo stanziato + RUP)
     # ---------------------------------------------------
     def crea_pdf(data, nome):
         buffer = BytesIO()
@@ -452,6 +455,7 @@ else:
         headers = [
             Paragraph("Tipologia", header_style),
             Paragraph("Manut.", header_style),
+            Paragraph("RUP", header_style),
             Paragraph("Intervento", header_style),
             Paragraph("Determina", header_style),
             Paragraph("Importo stanziato", header_style),
@@ -461,6 +465,7 @@ else:
         for _, row in data.iterrows():
             tip = Paragraph(str(row["tipologia_intervento"]), cell_style)
             manut = Paragraph("Sì" if row["manut_flag"] else "No", cell_style)
+            rup = Paragraph(str(row.get("rup", "")), cell_style)
             descr = Paragraph(str(row["denominazione_intervento"]), cell_style)
             det = Paragraph(str(row["determina"]), cell_style)
             if "importo_stanziato" in row and pd.notna(row["importo_stanziato"]):
@@ -469,12 +474,12 @@ else:
             else:
                 imp_txt = "-"
             imp_par = Paragraph(imp_txt, cell_style)
-            table_data.append([tip, manut, descr, det, imp_par])
+            table_data.append([tip, manut, rup, descr, det, imp_par])
 
         t = Table(
             table_data,
             repeatRows=1,
-            colWidths=[70, 35, 220, 90, 80],
+            colWidths=[65, 30, 60, 200, 90, 80],
         )
         t.setStyle(
             TableStyle(
@@ -483,7 +488,8 @@ else:
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
                     ("ALIGN", (0, 0), (-1, 0), "CENTER"),
                     ("ALIGN", (1, 1), (1, -1), "CENTER"),
-                    ("ALIGN", (4, 1), (4, -1), "RIGHT"),
+                    ("ALIGN", (2, 1), (2, -1), "LEFT"),
+                    ("ALIGN", (5, 1), (5, -1), "RIGHT"),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTSIZE", (0, 0), (-1, 0), 9),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
