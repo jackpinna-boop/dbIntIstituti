@@ -47,11 +47,6 @@ st.markdown(
         font-weight: 600;
         box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }}
-    .sulcis-main-header-logo {{
-        border-radius: 8px;
-        overflow: hidden;
-        flex-shrink:0;
-    }}
     .sulcis-main-header-text small {{
         display:block;
         font-weight:400;
@@ -228,12 +223,13 @@ df = interventi.merge(
 )
 
 # -------------------------------------------------------
-# NORMALIZZAZIONE / FLAG MANUTENZIONI
+# NORMALIZZAZIONE FLAG MANUTENZIONI
 # -------------------------------------------------------
 df["determina_norm"] = df["determina"].astype(str).str.strip().str.lower()
 df["manut_flag"] = df["manutenzioni"].astype(str).str.lower().eq("vero")
+df["tipologia_intervento"] = df["tipologia_intervento"].astype(str).str.strip()
 
-df = df.drop_duplicates()
+# NON tocchiamo df qui per i duplicati: la logica specializzata è solo nel riepilogo per tipologia.
 
 # -------------------------------------------------------
 # PULIZIA IMPORTI STANZIATI "€ 17.928,80"
@@ -369,15 +365,45 @@ if pagina == "Home":
 
         with col_e2:
             st.markdown("**Somma importi stanziati per tipologia**")
-            somma_tip = (
-                df_filt.groupby("tipologia_intervento")["importo_stanziato"]
+
+            df_tmp = df_filt.copy()
+            df_tmp["tipologia_intervento"] = df_tmp["tipologia_intervento"].astype(str).str.strip()
+            df_tmp["determina_norm"] = df_tmp["determina"].astype(str).str.strip().str.lower()
+
+            # Tipologie diverse da Accordo/Servizio: somma normale
+            mask_other = ~df_tmp["tipologia_intervento"].str.lower().eq("accordo/servizio")
+            somma_other = (
+                df_tmp[mask_other]
+                .groupby("tipologia_intervento")["importo_stanziato"]
                 .sum()
-                .sort_values(ascending=False)
                 .reset_index()
             )
+
+            # Accordo/Servizio: somma per determina (una volta per determina) e poi per tipologia
+            mask_acc = df_tmp["tipologia_intervento"].str.lower().eq("accordo/servizio")
+            df_acc = df_tmp[mask_acc].copy()
+
+            if not df_acc.empty:
+                acc_per_det = (
+                    df_acc.groupby(["determina_norm", "tipologia_intervento"])["importo_stanziato"]
+                    .sum()
+                    .reset_index()
+                )
+                somma_acc = (
+                    acc_per_det.groupby("tipologia_intervento")["importo_stanziato"]
+                    .sum()
+                    .reset_index()
+                )
+                somma_tip = pd.concat([somma_other, somma_acc], ignore_index=True)
+            else:
+                somma_tip = somma_other
+
+            somma_tip = somma_tip.sort_values("importo_stanziato", ascending=False).reset_index(drop=True)
+
             somma_tip["Importo stanziato (€)"] = somma_tip["importo_stanziato"].map(
                 lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             )
+
             st.dataframe(
                 somma_tip[["tipologia_intervento", "Importo stanziato (€)"]],
                 use_container_width=True,
