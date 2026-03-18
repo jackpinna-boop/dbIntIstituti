@@ -94,7 +94,6 @@ interventi.columns = interventi.columns.str.strip()
 # -------------------------------------------------------
 # RINOMINO COLONNE (USANDO 'codice' COME CHIAVE)
 # -------------------------------------------------------
-# ISTITUTI: SCU_Istituti-ELE_ISTITUTI-2.csv
 rename_map_istituti = {
     "codice": "codice",
     "Denominazione Immobile": "nome_istituto",
@@ -104,7 +103,6 @@ rename_map_istituti = {
 }
 istituti = istituti.rename(columns=rename_map_istituti)
 
-# INTERVENTI: SCU_Istituti-ELE_CMPLSS.csv
 rename_map_interventi = {
     "codice": "codice",  # chiave di join
     "Nome Istituto": "nome_istituto_descr",
@@ -113,7 +111,6 @@ rename_map_interventi = {
     "Manutenzioni": "manutenzioni",
     "Tipologia di intervento": "tipologia_intervento",
     "importo stanziato": "importo_stanziato",
-    # "importo stimato": "importo_stimato",  # non usato
 }
 interventi = interventi.rename(columns=rename_map_interventi)
 
@@ -144,7 +141,7 @@ if manc_int:
     st.stop()
 
 # -------------------------------------------------------
-# JOIN SU 'codice' (MANTENENDO TUTTI GLI INTERVENTI)
+# JOIN SU 'codice'
 # -------------------------------------------------------
 istituti["codice"] = istituti["codice"].astype(str).str.strip()
 interventi["codice"] = interventi["codice"].astype(str).str.strip()
@@ -161,7 +158,6 @@ df = interventi.merge(
 df["determina_norm"] = df["determina"].astype(str).str.strip().str.lower()
 df["manut_flag"] = df["manutenzioni"].astype(str).str.lower().eq("vero")
 
-# deduplicazione "morbida": elimino solo righe completamente identiche
 df = df.drop_duplicates()
 
 # -------------------------------------------------------
@@ -310,6 +306,24 @@ if pagina == "Home":
                 somma_tip[["tipologia_intervento", "Importo stanziato (€)"]],
                 use_container_width=True,
             )
+
+        # NUOVA SEZIONE: riepilogo manutenzioni VERO/FALSO
+        st.markdown("**Somma importi stanziati per manutenzione (VERO/FALSO)**")
+        somma_manut = (
+            df_filt.groupby("manut_flag")["importo_stanziato"]
+            .sum()
+            .reset_index()
+        )
+        somma_manut["manutenzione"] = somma_manut["manut_flag"].map(
+            {True: "VERO (manutenzioni)", False: "FALSO (altri interventi)"}
+        )
+        somma_manut["Importo stanziato (€)"] = somma_manut["importo_stanziato"].map(
+            lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
+        st.dataframe(
+            somma_manut[["manutenzione", "Importo stanziato (€)"]],
+            use_container_width=True,
+        )
     else:
         st.info("Colonna 'importo stanziato' non presente: riepilogo economico non calcolato.")
 
@@ -420,7 +434,6 @@ else:
             elements.append(Paragraph(txt_econ, styles["Normal"]))
             elements.append(Spacer(1, 12))
 
-        # tabella interventi – uso Paragraph per wrappare testo e padding per evitare sovrapposizioni
         header_style = styles["Heading5"]
         cell_style = styles["Normal"]
         cell_style.fontSize = 8
