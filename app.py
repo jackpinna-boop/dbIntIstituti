@@ -3,12 +3,14 @@ import pandas as pd
 import re
 from io import BytesIO
 
+import requests
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
     Spacer,
     Table,
     TableStyle,
+    Image as RLImage,
 )
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
@@ -16,12 +18,86 @@ from reportlab.lib.pagesizes import A4
 from pandas.errors import EmptyDataError, ParserError
 
 # -------------------------------------------------------
-# CONFIGURAZIONE BASE
+# CONFIGURAZIONE BASE, COLORI E LOGO
 # -------------------------------------------------------
 st.set_page_config(layout="wide", page_title="Dashboard Interventi – Prov. Sulcis Iglesiente")
 
-st.title("📊 Dashboard Interventi Istituti Scolastici")
-st.caption("Provincia del Sulcis Iglesiente – interventi e manutenzioni sugli istituti scolastici")
+LOGO_URL = "https://provincia-sulcis-iglesiente-api.cloud.municipiumapp.it/s3/150x150/s3/20243/sito/stemma.jpg"
+
+PRIMARY_HEX = "#6BE600"
+PRIMARY_LIGHT = "#A8FF66"
+PRIMARY_EXTRA_LIGHT = "#E8FFE0"
+
+st.markdown(
+    f"""
+    <style>
+    [data-testid="stAppViewContainer"] {{
+        background: linear-gradient(135deg, {PRIMARY_EXTRA_LIGHT} 0%, #FFFFFF 40%, {PRIMARY_EXTRA_LIGHT} 100%);
+    }}
+
+    .sulcis-main-header {{
+        display:flex;
+        align-items:center;
+        gap:1rem;
+        background: linear-gradient(90deg, {PRIMARY_HEX} 0%, {PRIMARY_LIGHT} 50%, {PRIMARY_EXTRA_LIGHT} 100%);
+        padding: 0.9rem 1.3rem;
+        border-radius: 0.75rem;
+        margin-bottom: 1.2rem;
+        color: #1E2A10;
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }}
+    .sulcis-main-header-logo {{
+        border-radius: 8px;
+        overflow: hidden;
+        flex-shrink:0;
+    }}
+    .sulcis-main-header-text small {{
+        display:block;
+        font-weight:400;
+        opacity:0.9;
+        margin-top:0.2rem;
+    }}
+
+    .sulcis-card {{
+        background: linear-gradient(135deg, #FFFFFF 0%, {PRIMARY_EXTRA_LIGHT} 100%);
+        border-radius: 0.75rem;
+        padding: 0.9rem 1.1rem;
+        margin-bottom: 1rem;
+        border: 1px solid rgba(107,230,0,0.25);
+    }}
+
+    .sulcis-section-title {{
+        font-weight: 600;
+        color: #1E2A10;
+        margin-bottom: 0.3rem;
+    }}
+
+    h1, h2, h3 {{
+        margin-top: 0.4rem;
+        margin-bottom: 0.4rem;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Header con logo + testo
+col_logo, col_title = st.columns([1, 6])
+with col_logo:
+    st.image(LOGO_URL, width=70)
+with col_title:
+    st.markdown(
+        """
+        <div class="sulcis-main-header">
+            <div class="sulcis-main-header-text">
+                Dashboard Interventi Istituti Scolastici<br/>
+                <small>Provincia del Sulcis Iglesiente – interventi e manutenzioni sugli istituti scolastici</small>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # -------------------------------------------------------
@@ -223,7 +299,8 @@ if df_filt.empty:
 # PAGINA HOME
 # -------------------------------------------------------
 if pagina == "Home":
-    st.header("🏠 Dashboard generale – Provincia del Sulcis Iglesiente")
+    st.markdown('<div class="sulcis-card">', unsafe_allow_html=True)
+    st.markdown('<div class="sulcis-section-title">🏠 Dashboard generale – Provincia del Sulcis Iglesiente</div>', unsafe_allow_html=True)
 
     st.subheader("Elenco interventi (filtrati)")
 
@@ -325,6 +402,8 @@ if pagina == "Home":
     else:
         st.info("Colonna 'importo stanziato' non presente: riepilogo economico non calcolato.")
 
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # -------------------------------------------------------
 # PAGINE ISTITUTO
 # -------------------------------------------------------
@@ -332,7 +411,8 @@ else:
     istituto_sel = pagina
     df_ist = df_filt[df_filt["nome_istituto"] == istituto_sel]
 
-    st.header(f"🏫 {istituto_sel} – Provincia del Sulcis Iglesiente")
+    st.markdown('<div class="sulcis-card">', unsafe_allow_html=True)
+    st.markdown(f'<div class="sulcis-section-title">🏫 {istituto_sel} – Provincia del Sulcis Iglesiente</div>', unsafe_allow_html=True)
 
     row_ist = istituti[istituti["nome_istituto"] == istituto_sel].head(1)
     if not row_ist.empty:
@@ -413,7 +493,7 @@ else:
         st.bar_chart(pie_ist)
 
     # ---------------------------------------------------
-    # PDF COMPLETO PER ISTITUTO (importo stanziato + RUP)
+    # PDF COMPLETO PER ISTITUTO (importo stanziato + RUP + LOGO)
     # ---------------------------------------------------
     def crea_pdf(data, nome):
         buffer = BytesIO()
@@ -421,6 +501,18 @@ else:
         styles = getSampleStyleSheet()
 
         elements = []
+
+        # Logo dal URL
+        try:
+            resp = requests.get(LOGO_URL, timeout=5)
+            if resp.status_code == 200:
+                logo_buf = BytesIO(resp.content)
+                logo = RLImage(logo_buf, width=40, height=40)
+                elements.append(logo)
+                elements.append(Spacer(1, 6))
+        except Exception:
+            pass
+
         elements.append(Paragraph(f"Report Istituto: {nome}", styles["Title"]))
         elements.append(Paragraph("Provincia del Sulcis Iglesiente", styles["Normal"]))
         elements.append(Spacer(1, 12))
@@ -516,3 +608,5 @@ else:
         file_name=f"report_{istituto_sel}.pdf",
         mime="application/pdf",
     )
+
+    st.markdown('</div>', unsafe_allow_html=True)
