@@ -376,20 +376,6 @@ if pagina == "Home":
             use_container_width=True,
         )
 
-        # Totale per determina
-        st.markdown("**Totale importo stanziato per determina**")
-        s_det = (
-            df_rip.groupby(["determina_norm", "determina"])["importo_stanziato"]
-            .sum()
-            .reset_index()
-            .sort_values("importo_stanziato", ascending=False)
-        )
-        s_det["Importo (€)"] = s_det["importo_stanziato"].map(fmt_eur)
-        st.dataframe(
-            s_det[["determina", "Importo (€)"]],
-            use_container_width=True,
-        )
-
         totale_generale = df_rip["importo_stanziato"].sum()
         st.success(f"**Totale generale stanziato (dedup per istituto/determina/importo): {fmt_eur(totale_generale)}**")
 
@@ -460,7 +446,7 @@ else:
         with c1:
             st.markdown(f"**Comune:** {row_ist.iloc[0].get('comune', '')}")
         with c2:
-            st.markmondown(f"**Indirizzo:** {row_ist.iloc[0].get('indirizzo', '')}")
+            st.markdown(f"**Indirizzo:** {row_ist.iloc[0].get('indirizzo', '')}")
 
     colonne_base = [
         "tipologia_intervento",
