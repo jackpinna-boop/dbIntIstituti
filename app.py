@@ -228,34 +228,12 @@ df = interventi.merge(
 )
 
 # -------------------------------------------------------
-# NORMALIZZAZIONE / FLAG MANUTENZIONI E DUPLICATI
+# NORMALIZZAZIONE / FLAG MANUTENZIONI
 # -------------------------------------------------------
 df["determina_norm"] = df["determina"].astype(str).str.strip().str.lower()
 df["manut_flag"] = df["manutenzioni"].astype(str).str.lower().eq("vero")
-df["tipologia_intervento"] = df["tipologia_intervento"].astype(str).str.strip()
 
-# Regola duplicati:
-# - tipologia "Accordo/Servizio": non sommare duplicati identici -> una sola riga per determina_norm + campi chiave
-# - altre tipologie: somma la determina una sola volta -> una riga per determina_norm (dedup su determina_norm)
-mask_acc = df["tipologia_intervento"].str.lower().eq("accordo/servizio")
-df_acc = df[mask_acc].copy()
-df_acc = df_acc.drop_duplicates(
-    subset=[
-        "determina_norm",
-        "codice",
-        "denominazione_intervento",
-        "tipologia_intervento",
-        "importo_stanziato",
-        "rup",
-        "manutenzioni",
-    ]
-)
-
-mask_other = ~mask_acc
-df_other = df[mask_other].copy()
-df_other = df_other.drop_duplicates(subset=["determina_norm"])
-
-df = pd.concat([df_acc, df_other], ignore_index=True)
+df = df.drop_duplicates()
 
 # -------------------------------------------------------
 # PULIZIA IMPORTI STANZIATI "€ 17.928,80"
