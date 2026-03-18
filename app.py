@@ -32,7 +32,6 @@ def load_uploaded_csv(uploaded_file, nome_log="file"):
         st.error(f"Nessun file caricato per {nome_log}.")
         return pd.DataFrame()
 
-    # 1) UTF-8
     try:
         uploaded_file.seek(0)
         df = pd.read_csv(
@@ -48,7 +47,6 @@ def load_uploaded_csv(uploaded_file, nome_log="file"):
         st.error(f"{nome_log}: problema nel parsing del CSV (UTF-8): {e}")
         return pd.DataFrame()
     except UnicodeDecodeError as e:
-        # 2) fallback cp1252
         st.warning(
             f"{nome_log}: errore di encoding con UTF-8, provo cp1252 in fallback. Dettagli: {e}"
         )
@@ -104,7 +102,7 @@ rename_map_istituti = {
 istituti = istituti.rename(columns=rename_map_istituti)
 
 rename_map_interventi = {
-    "codice": "codice",  # chiave di join
+    "codice": "codice",
     "Nome Istituto": "nome_istituto_descr",
     "Denominazione intervento": "denominazione_intervento",
     "Determina": "determina",
@@ -269,7 +267,6 @@ if pagina == "Home":
         ).set_index("Tipo")
         st.bar_chart(pie_df)
 
-    # RIEPILOGO ECONOMICO – importo STANZIATO
     st.subheader("💶 Riepilogo economico (importo stanziato)")
 
     if "importo_stanziato" in df_filt.columns:
@@ -307,7 +304,6 @@ if pagina == "Home":
                 use_container_width=True,
             )
 
-        # NUOVA SEZIONE: riepilogo manutenzioni VERO/FALSO
         st.markdown("**Somma importi stanziati per manutenzione (VERO/FALSO)**")
         somma_manut = (
             df_filt.groupby("manut_flag")["importo_stanziato"]
@@ -344,6 +340,7 @@ else:
         with col_info2:
             st.markdown(f"**Indirizzo:** {row_ist.iloc[0].get('indirizzo', '')}")
 
+    # 1) INTERVENTI (TUTTI)
     st.subheader("📋 Interventi (tutti)")
 
     colonne_base = [
@@ -368,7 +365,8 @@ else:
         column_config=column_config_ist if column_config_ist else None,
     )
 
-    st.subheader("🛠️ Interventi di manutenzione")
+    # 2) INTERVENTI DI MANUTENZIONE (VERO)
+    st.subheader("🛠️ Interventi di manutenzione (VERO)")
 
     df_manut = df_ist[df_ist["manut_flag"]]
     if df_manut.empty:
@@ -376,6 +374,19 @@ else:
     else:
         st.dataframe(
             df_manut[colonne_base],
+            use_container_width=True,
+            column_config=column_config_ist if column_config_ist else None,
+        )
+
+    # 3) INTERVENTI NON DI MANUTENZIONE (FALSO / altro)
+    st.subheader("📋 Interventi diversi dalle manutenzioni (FALSO)")
+
+    df_non_manut = df_ist[~df_ist["manut_flag"]]
+    if df_non_manut.empty:
+        st.info("Nessun intervento non di manutenzione per questo istituto.")
+    else:
+        st.dataframe(
+            df_non_manut[colonne_base],
             use_container_width=True,
             column_config=column_config_ist if column_config_ist else None,
         )
