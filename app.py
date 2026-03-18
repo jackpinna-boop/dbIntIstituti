@@ -21,12 +21,12 @@ def load_csv(uploaded_file, nome_log="file"):
         st.error(f"Nessun file caricato per {nome_log}.")
         return pd.DataFrame()
 
-    # 1) Tentativo con UTF-8 (come da tuo export)
+    # 1) Tentativo con UTF-8 (come da esportazione Excel)
     try:
         uploaded_file.seek(0)
         df = pd.read_csv(
             uploaded_file,
-            sep=";",          # CSV da Excel con ; come separatore
+            sep=";",          # CSV delimitato da ;
             encoding="utf-8",
             engine="python",
         )
@@ -81,7 +81,7 @@ if file_istituti and file_complessi:
     complessi.columns = complessi.columns.str.strip()
 
     # INTERVENTI: mappo i nomi reali in nomi "comodi"
-    # (da quello che hai incollato)
+    # (da tuo esempio INTERVENTI)
     rename_map_complessi = {
         "Determina": "determina",
         "Manutenzioni": "manutenzioni",
@@ -90,8 +90,11 @@ if file_istituti and file_complessi:
     }
     complessi = complessi.rename(columns=rename_map_complessi)
 
-    # ISTITUTI: assumo colonne "Nome Istituto" e "comune"/"Comune"
+    # ISTITUTI:
+    # - "Denominazione Immobile" → nome_istituto
+    # - "Comune"/"comune"        → comune
     rename_map_istituti = {
+        "Denominazione Immobile": "nome_istituto",
         "Nome Istituto": "nome_istituto",
         "Comune": "comune",
         "comune": "comune",
@@ -165,7 +168,7 @@ if file_istituti and file_complessi:
     st.header("🌍 Mappa istituti")
 
     mappa_df = istituti.copy()
-    # Placeholder coordinate (sostituibili con lat/lon reali se le hai)
+    # Placeholder coordinate (sostituibili con lat/lon reali)
     mappa_df["lat"] = 41.9
     mappa_df["lon"] = 12.5
 
