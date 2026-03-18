@@ -3,7 +3,13 @@ import pandas as pd
 import re
 from io import BytesIO
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+)
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -107,7 +113,7 @@ rename_map_interventi = {
     "Manutenzioni": "manutenzioni",
     "Tipologia di intervento": "tipologia_intervento",
     "importo stanziato": "importo_stanziato",
-    "importo stimato": "importo_stimato",
+    # "importo stimato": "importo_stimato",  # non usato
 }
 interventi = interventi.rename(columns=rename_map_interventi)
 
@@ -159,7 +165,7 @@ df["manut_flag"] = df["manutenzioni"].astype(str).str.lower().eq("vero")
 df = df.drop_duplicates()
 
 # -------------------------------------------------------
-# PULIZIA IMPORTI "€ 17.928,80"
+# PULIZIA IMPORTI STANZIATI "€ 17.928,80"
 # -------------------------------------------------------
 def pulisci_importo(val):
     if pd.isna(val):
@@ -174,9 +180,8 @@ def pulisci_importo(val):
     except ValueError:
         return None
 
-for col_imp in ["importo_stanziato", "importo_stimato"]:
-    if col_imp in df.columns:
-        df[col_imp] = df[col_imp].apply(pulisci_importo)
+if "importo_stanziato" in df.columns:
+    df["importo_stanziato"] = df["importo_stanziato"].apply(pulisci_importo)
 
 # -------------------------------------------------------
 # NAVIGAZIONE INTERNA
@@ -238,15 +243,8 @@ if pagina == "Home":
     ]
     if "importo_stanziato" in df_filt.columns:
         colonne_tab.append("importo_stanziato")
-    if "importo_stimato" in df_filt.columns:
-        colonne_tab.append("importo_stimato")
 
     column_config = {}
-    if "importo_stimato" in df_filt.columns:
-        column_config["importo_stimato"] = st.column_config.NumberColumn(
-            "Importo stimato",
-            format="€ %,.2f",
-        )
     if "importo_stanziato" in df_filt.columns:
         column_config["importo_stanziato"] = st.column_config.NumberColumn(
             "Importo stanziato",
@@ -275,45 +273,45 @@ if pagina == "Home":
         ).set_index("Tipo")
         st.bar_chart(pie_df)
 
-    # RIEPILOGO ECONOMICO – senza .style, con testo formattato
-    st.subheader("💶 Riepilogo economico (importo stimato)")
+    # RIEPILOGO ECONOMICO – importo STANZIATO
+    st.subheader("💶 Riepilogo economico (importo stanziato)")
 
-    if "importo_stimato" in df_filt.columns:
+    if "importo_stanziato" in df_filt.columns:
         col_e1, col_e2 = st.columns(2)
 
         with col_e1:
-            st.markdown("**Somma importi stimati per istituto**")
+            st.markdown("**Somma importi stanziati per istituto**")
             somma_ist = (
-                df_filt.groupby("nome_istituto")["importo_stimato"]
+                df_filt.groupby("nome_istituto")["importo_stanziato"]
                 .sum()
                 .sort_values(ascending=False)
                 .reset_index()
             )
-            somma_ist["Importo stimato (€)"] = somma_ist["importo_stimato"].map(
+            somma_ist["Importo stanziato (€)"] = somma_ist["importo_stanziato"].map(
                 lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             )
             st.dataframe(
-                somma_ist[["nome_istituto", "Importo stimato (€)"]],
+                somma_ist[["nome_istituto", "Importo stanziato (€)"]],
                 use_container_width=True,
             )
 
         with col_e2:
-            st.markdown("**Somma importi stimati per tipologia**")
+            st.markdown("**Somma importi stanziati per tipologia**")
             somma_tip = (
-                df_filt.groupby("tipologia_intervento")["importo_stimato"]
+                df_filt.groupby("tipologia_intervento")["importo_stanziato"]
                 .sum()
                 .sort_values(ascending=False)
                 .reset_index()
             )
-            somma_tip["Importo stimato (€)"] = somma_tip["importo_stimato"].map(
+            somma_tip["Importo stanziato (€)"] = somma_tip["importo_stanziato"].map(
                 lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             )
             st.dataframe(
-                somma_tip[["tipologia_intervento", "Importo stimato (€)"]],
+                somma_tip[["tipologia_intervento", "Importo stanziato (€)"]],
                 use_container_width=True,
             )
     else:
-        st.info("Colonna 'importo stimato' non presente: riepilogo economico non calcolato.")
+        st.info("Colonna 'importo stanziato' non presente: riepilogo economico non calcolato.")
 
 # -------------------------------------------------------
 # PAGINE ISTITUTO
@@ -342,15 +340,8 @@ else:
     ]
     if "importo_stanziato" in df_ist.columns:
         colonne_base.append("importo_stanziato")
-    if "importo_stimato" in df_ist.columns:
-        colonne_base.append("importo_stimato")
 
     column_config_ist = {}
-    if "importo_stimato" in df_ist.columns:
-        column_config_ist["importo_stimato"] = st.column_config.NumberColumn(
-            "Importo stimato",
-            format="€ %,.2f",
-        )
     if "importo_stanziato" in df_ist.columns:
         column_config_ist["importo_stanziato"] = st.column_config.NumberColumn(
             "Importo stanziato",
@@ -394,7 +385,7 @@ else:
         st.bar_chart(pie_ist)
 
     # ---------------------------------------------------
-    # PDF COMPLETO PER ISTITUTO (tabella + riepilogo)
+    # PDF COMPLETO PER ISTITUTO (importo stanziato)
     # ---------------------------------------------------
     def crea_pdf(data, nome):
         buffer = BytesIO()
@@ -417,34 +408,50 @@ else:
         )
         elements.append(Spacer(1, 12))
 
-        if "importo_stimato" in data.columns:
-            somma_manut = data[data["manut_flag"]]["importo_stimato"].sum()
-            somma_altri = data[~data["manut_flag"]]["importo_stimato"].sum()
-            somma_tot = data["importo_stimato"].sum()
+        if "importo_stanziato" in data.columns:
+            somma_manut = data[data["manut_flag"]]["importo_stanziato"].sum()
+            somma_altri = data[~data["manut_flag"]]["importo_stanziato"].sum()
+            somma_tot = data["importo_stanziato"].sum()
             txt_econ = (
-                f"Importo stimato totale: € {somma_tot:,.2f} "
+                f"Importo stanziato totale: € {somma_tot:,.2f} "
                 f"(Manutenzioni: € {somma_manut:,.2f} – Altri: € {somma_altri:,.2f})"
             )
             txt_econ = txt_econ.replace(",", "X").replace(".", ",").replace("X", ".")
             elements.append(Paragraph(txt_econ, styles["Normal"]))
             elements.append(Spacer(1, 12))
 
-        headers = ["Tipologia", "Manut.", "Intervento", "Determina", "Importo stimato"]
+        # tabella interventi – uso Paragraph per wrappare testo e padding per evitare sovrapposizioni
+        header_style = styles["Heading5"]
+        cell_style = styles["Normal"]
+        cell_style.fontSize = 8
+
+        headers = [
+            Paragraph("Tipologia", header_style),
+            Paragraph("Manut.", header_style),
+            Paragraph("Intervento", header_style),
+            Paragraph("Determina", header_style),
+            Paragraph("Importo stanziato", header_style),
+        ]
         table_data = [headers]
 
         for _, row in data.iterrows():
-            tip = str(row["tipologia_intervento"])
-            manut = "Sì" if row["manut_flag"] else "No"
-            descr = str(row["denominazione_intervento"])
-            det = str(row["determina"])
-            if "importo_stimato" in row and pd.notna(row["importo_stimato"]):
-                imp = row["importo_stimato"]
+            tip = Paragraph(str(row["tipologia_intervento"]), cell_style)
+            manut = Paragraph("Sì" if row["manut_flag"] else "No", cell_style)
+            descr = Paragraph(str(row["denominazione_intervento"]), cell_style)
+            det = Paragraph(str(row["determina"]), cell_style)
+            if "importo_stanziato" in row and pd.notna(row["importo_stanziato"]):
+                imp = row["importo_stanziato"]
                 imp_txt = f"€ {imp:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             else:
                 imp_txt = "-"
-            table_data.append([tip, manut, descr, det, imp_txt])
+            imp_par = Paragraph(imp_txt, cell_style)
+            table_data.append([tip, manut, descr, det, imp_par])
 
-        t = Table(table_data, repeatRows=1, colWidths=[80, 35, 210, 90, 80])
+        t = Table(
+            table_data,
+            repeatRows=1,
+            colWidths=[70, 35, 220, 90, 80],
+        )
         t.setStyle(
             TableStyle(
                 [
@@ -455,12 +462,16 @@ else:
                     ("ALIGN", (4, 1), (4, -1), "RIGHT"),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTSIZE", (0, 0), (-1, 0), 9),
-                    ("FONTSIZE", (0, 1), (-1, -1), 8),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
                 ]
             )
         )
+
         elements.append(t)
 
         doc.build(elements)
