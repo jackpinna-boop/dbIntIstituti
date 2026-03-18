@@ -15,8 +15,17 @@ file_complessi = st.file_uploader("Carica file INTERVENTI", type="csv")
 
 if file_istituti and file_complessi:
 
-    istituti = pd.read_csv(file_istituti)
-    complessi = pd.read_csv(file_complessi)
+    def load_csv(file):
+    try:
+        return pd.read_csv(file, sep=';', encoding='utf-8')
+    except:
+        try:
+            return pd.read_csv(file, sep=';', encoding='latin1')
+        except:
+            return pd.read_csv(file, sep=',', encoding='latin1')
+
+istituti = load_csv(file_istituti)
+complessi = load_csv(file_complessi)
 
     # Normalizzazione
     complessi["determina_norm"] = complessi["determina"].astype(str).str.strip().str.lower()
