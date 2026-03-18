@@ -17,34 +17,21 @@ def load_csv(uploaded_file, nome_log="file"):
         return pd.DataFrame()
 
     try:
-        # Importante: per file_uploader usiamo il buffer
         uploaded_file.seek(0)
-        df = pd.read_csv(uploaded_file, sep=";", encoding="utf-8", engine="python")
+        # Tipico encoding per CSV esportati da Excel/Windows
+        df = pd.read_csv(uploaded_file, sep=";", encoding="cp1252", engine="python")
         if df.empty:
             st.error(f"{nome_log}: il file è vuoto o non contiene colonne.")
         return df
-    except (EmptyDataError, ParserError):
-        st.warning(f"{nome_log}: problemi con UTF-8; provo con latin1...")
-        try:
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, sep=";", encoding="latin1", engine="python")
-            if df.empty:
-                st.error(f"{nome_log}: il file è vuoto o non contiene colonne.")
-            return df
-        except (EmptyDataError, ParserError):
-            st.warning(f"{nome_log}: provo fallback con separatore ','...")
-            try:
-                uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=",", encoding="latin1", engine="python")
-                if df.empty:
-                    st.error(f"{nome_log}: il file è vuoto o non contiene colonne.")
-                return df
-            except EmptyDataError:
-                st.error(f"{nome_log}: EmptyDataError - nessuna colonna da parsare dal file.")
-                return pd.DataFrame()
-            except Exception as e:
-                st.error(f"{nome_log}: errore imprevisto: {e}")
-                return pd.DataFrame()
+    except (EmptyDataError, ParserError) as e:
+        st.error(f"{nome_log}: problema nel parsing del CSV: {e}")
+        return pd.DataFrame()
+    except UnicodeDecodeError as e:
+        st.error(
+            f"{nome_log}: problema di encoding (prova a salvare il CSV in UTF-8 da Excel). "
+            f"Dettagli: {e}"
+        )
+        return pd.DataFrame()
     except Exception as e:
         st.error(f"{nome_log}: errore imprevisto: {e}")
         return pd.DataFrame()
@@ -59,15 +46,19 @@ if file_istituti and file_complessi:
     istituti = load_csv(file_istituti, "ISTITUTI")
     complessi = load_csv(file_complessi, "INTERVENTI")
 
-    # Se uno dei due è vuoto, interrompiamo
+    # Se uno dei due è vuoto o ha dato errore, interrompiamo
     if istituti.empty:
         st.stop()
     if complessi.empty:
         st.stop()
 
-    # ---------------- NORMALIZZAZIONE ----------------
-    # Controlli su colonne attese
-    colonne_necessarie_complessi = ["determina", "manutenzioni", "nome istituto", "denominazione intervento"]
+    # ---------------- CONTROLLI COLONNE ----------------
+    colonne_necessarie_complessi = [
+        "determina",
+        "manutenzioni",
+        "nome istituto",
+        "denominazione intervento",
+    ]
     mancanti_complessi = [c for c in colonne_necessarie_complessi if c not in complessi.columns]
     if mancanti_complessi:
         st.error(f"Nel file INTERVENTI mancano le colonne: {mancanti_complessi}")
@@ -79,6 +70,12 @@ if file_istituti and file_complessi:
         st.write("Colonne trovate:", list(istituti.columns))
         st.stop()
 
+    if "nome istituto" not in istituti.columns:
+        st.error("Nel file ISTITUTI manca la colonna 'nome istituto'.")
+        st.write("Colonne trovate:", list(istituti.columns))
+        st.stop()
+
+    # ---------------- NORMALIZZAZIONE ----------------
     complessi["determina_norm"] = complessi["determina"].astype(str).str.strip().str.lower()
     complessi["manut_flag"] = complessi["manutenzioni"].astype(str).str.lower().eq("vero")
 
@@ -100,10 +97,6 @@ if file_istituti and file_complessi:
 
     if filtro_comune:
         istituti_filtrati = istituti[istituti["comune"].isin(filtro_comune)]
-        if "nome istituto" not in istituti_filtrati.columns:
-            st.error("Nel file ISTITUTI manca la colonna 'nome istituto' per applicare il filtro.")
-            st.write("Colonne trovate:", list(istituti_filtrati.columns))
-            st.stop()
         df = df[df["nome istituto"].isin(istituti_filtrati["nome istituto"])]
 
     if filtro_manut == "Solo manutenzioni":
@@ -119,7 +112,7 @@ if file_istituti and file_complessi:
     st.header("🌍 Mappa istituti")
 
     mappa_df = istituti.copy()
-    # Se non hai coordinate reali, queste sono placeholder
+    # Placeholder coordinate (se non hai lat/lon reali)
     mappa_df["lat"] = 41.9
     mappa_df["lon"] = 12.5
 
