@@ -18,7 +18,7 @@ def load_csv(uploaded_file, nome_log="file"):
 
     try:
         uploaded_file.seek(0)
-        # Tipico encoding per CSV esportati da Excel/Windows
+        # CSV da Excel/Windows: ; + cp1252
         df = pd.read_csv(uploaded_file, sep=";", encoding="cp1252", engine="python")
         if df.empty:
             st.error(f"{nome_log}: il file è vuoto o non contiene colonne.")
@@ -46,33 +46,51 @@ if file_istituti and file_complessi:
     istituti = load_csv(file_istituti, "ISTITUTI")
     complessi = load_csv(file_complessi, "INTERVENTI")
 
-    # Se uno dei due è vuoto o ha dato errore, interrompiamo
-    if istituti.empty:
+    if istituti.empty or complessi.empty:
         st.stop()
-    if complessi.empty:
-        st.stop()
+
+    # ---------------- NORMALIZZO NOMI COLONNE ----------------
+    # Mantengo una copia originale e creo anche una versione "pulita" per lavorare
+    complessi.columns = complessi.columns.str.strip()
+    istituti.columns = istituti.columns.str.strip()
+
+    # Rinomino le colonne chiave dei complessi in nomi "semplici"
+    rename_map_complessi = {
+        "Determina": "determina",
+        "Manutenzioni": "manutenzioni",
+        "Nome Istituto": "nome_istituto",
+        "Denominazione intervento": "denominazione_intervento",
+    }
+    complessi = complessi.rename(columns=rename_map_complessi)
+
+    # Per gli istituti assumo che esistano almeno:
+    # - Nome Istituto
+    # - Comune  (se il CSV ISTITUTI ha nome diverso, adattiamo)
+    rename_map_istituti = {
+        "Nome Istituto": "nome_istituto",
+        "comune": "comune",   # se la colonna si chiama già 'comune' non cambia nulla
+        "Comune": "comune",
+    }
+    istituti = istituti.rename(columns=rename_map_istituti)
 
     # ---------------- CONTROLLI COLONNE ----------------
     colonne_necessarie_complessi = [
         "determina",
         "manutenzioni",
-        "nome istituto",
-        "denominazione intervento",
+        "nome_istituto",
+        "denominazione_intervento",
     ]
     mancanti_complessi = [c for c in colonne_necessarie_complessi if c not in complessi.columns]
     if mancanti_complessi:
         st.error(f"Nel file INTERVENTI mancano le colonne: {mancanti_complessi}")
-        st.write("Colonne trovate:", list(complessi.columns))
+        st.write("Colonne INTERVENTI trovate:", list(complessi.columns))
         st.stop()
 
-    if "comune" not in istituti.columns:
-        st.error("Nel file ISTITUTI manca la colonna 'comune'.")
-        st.write("Colonne trovate:", list(istituti.columns))
-        st.stop()
-
-    if "nome istituto" not in istituti.columns:
-        st.error("Nel file ISTITUTI manca la colonna 'nome istituto'.")
-        st.write("Colonne trovate:", list(istituti.columns))
+    colonne_necessarie_istituti = ["nome_istituto", "comune"]
+    mancanti_istituti = [c for c in colonne_necessarie_istituti if c not in istituti.columns]
+    if mancanti_istituti:
+        st.error(f"Nel file ISTITUTI mancano le colonne: {mancanti_istituti}")
+        st.write("Colonne ISTITUTI trovate:", list(istituti.columns))
         st.stop()
 
     # ---------------- NORMALIZZAZIONE ----------------
@@ -97,7 +115,7 @@ if file_istituti and file_complessi:
 
     if filtro_comune:
         istituti_filtrati = istituti[istituti["comune"].isin(filtro_comune)]
-        df = df[df["nome istituto"].isin(istituti_filtrati["nome istituto"])]
+        df = df[df["nome_istituto"].isin(istituti_filtrati["nome_istituto"])]
 
     if filtro_manut == "Solo manutenzioni":
         df = df[df["manut_flag"]]
@@ -112,7 +130,7 @@ if file_istituti and file_complessi:
     st.header("🌍 Mappa istituti")
 
     mappa_df = istituti.copy()
-    # Placeholder coordinate (se non hai lat/lon reali)
+    # Placeholder coordinate
     mappa_df["lat"] = 41.9
     mappa_df["lon"] = 12.5
 
@@ -121,7 +139,7 @@ if file_istituti and file_complessi:
     # ---------------- STATISTICHE GLOBALI ----------------
     st.header("📊 Statistiche globali")
 
-    interventi = df.groupby("nome istituto").size()
+    interventi = df.groupby("nome_istituto").size()
 
     col1, col2 = st.columns(2)
 
@@ -144,7 +162,7 @@ if file_istituti and file_complessi:
     # ---------------- DETTAGLIO ISTITUTO ----------------
     st.header("🏫 Dettaglio istituto")
 
-    istituti_unici = df["nome istituto"].dropna().unique()
+    istituti_unici = df["nome_istituto"].dropna().unique()
     if len(istituti_unici) == 0:
         st.warning("Nessun istituto disponibile per il dettaglio.")
         st.stop()
@@ -155,7 +173,7 @@ if file_istituti and file_complessi:
     )
 
     if istituto_sel:
-        df_sel = df[df["nome istituto"] == istituto_sel]
+        df_sel = df[df["nome_istituto"] == istituto_sel]
 
         st.subheader(f"📍 {istituto_sel}")
 
@@ -179,7 +197,7 @@ if file_istituti and file_complessi:
         st.subheader("📋 Elenco interventi")
 
         for _, row in df_sel.iterrows():
-            testo = str(row["denominazione intervento"])
+            testo = str(row["denominazione_intervento"])
             if row["manut_flag"]:
                 testo += " 🟢 Manutenzione"
             st.write(testo)
@@ -195,7 +213,7 @@ if file_istituti and file_complessi:
             elements.append(Spacer(1, 12))
 
             for _, row in data.iterrows():
-                txt = str(row["denominazione intervento"])
+                txt = str(row["denominazione_intervento"])
                 if row["manut_flag"]:
                     txt += " (Manutenzione)"
                 elements.append(Paragraph(txt, styles["Normal"]))
