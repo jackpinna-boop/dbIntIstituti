@@ -366,7 +366,7 @@ else:
     )
 
     # 2) INTERVENTI DI MANUTENZIONE (VERO)
-    st.subheader("🛠️ Interventi di manutenzione (VERO)")
+    st.subheader("🛠️ Interventi di manutenzione")
 
     df_manut = df_ist[df_ist["manut_flag"]]
     if df_manut.empty:
@@ -379,7 +379,7 @@ else:
         )
 
     # 3) INTERVENTI NON DI MANUTENZIONE (FALSO / altro)
-    st.subheader("📋 Interventi diversi dalle manutenzioni (FALSO)")
+    st.subheader("📋 Interventi di Investimenti")
 
     df_non_manut = df_ist[~df_ist["manut_flag"]]
     if df_non_manut.empty:
