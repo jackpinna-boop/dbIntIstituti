@@ -6,38 +6,63 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from pandas.errors import EmptyDataError, ParserError
 
+# ------------------------------------------------------------------
+# CONFIGURAZIONE PAGINA
+# ------------------------------------------------------------------
 st.set_page_config(layout="wide")
-
 st.title("📊 Dashboard Istituti Scolastici")
 
-# ---------------- FUNZIONE LETTURA CSV ----------------
+
+# ------------------------------------------------------------------
+# FUNZIONE GENERICA LETTURA CSV
+# ------------------------------------------------------------------
 def load_csv(uploaded_file, nome_log="file"):
     if uploaded_file is None:
         st.error(f"Nessun file caricato per {nome_log}.")
         return pd.DataFrame()
 
+    # 1) Tentativo con UTF-8 (come da tuo export)
     try:
         uploaded_file.seek(0)
-        # CSV da Excel/Windows: ; + cp1252
-        df = pd.read_csv(uploaded_file, sep=";", encoding="cp1252", engine="python")
+        df = pd.read_csv(
+            uploaded_file,
+            sep=";",          # CSV da Excel con ; come separatore
+            encoding="utf-8",
+            engine="python",
+        )
         if df.empty:
             st.error(f"{nome_log}: il file è vuoto o non contiene colonne.")
         return df
     except (EmptyDataError, ParserError) as e:
-        st.error(f"{nome_log}: problema nel parsing del CSV: {e}")
+        st.error(f"{nome_log}: problema nel parsing del CSV (UTF-8): {e}")
         return pd.DataFrame()
     except UnicodeDecodeError as e:
-        st.error(
-            f"{nome_log}: problema di encoding (prova a salvare il CSV in UTF-8 da Excel). "
-            f"Dettagli: {e}"
+        # 2) Fallback cp1252, tipico di Windows
+        st.warning(
+            f"{nome_log}: errore di encoding con UTF-8, provo cp1252 in fallback. Dettagli: {e}"
         )
-        return pd.DataFrame()
+        try:
+            uploaded_file.seek(0)
+            df = pd.read_csv(
+                uploaded_file,
+                sep=";",
+                encoding="cp1252",
+                engine="python",
+            )
+            if df.empty:
+                st.error(f"{nome_log}: il file è vuoto o non contiene colonne (cp1252).")
+            return df
+        except Exception as e2:
+            st.error(f"{nome_log}: anche il fallback cp1252 fallisce: {e2}")
+            return pd.DataFrame()
     except Exception as e:
         st.error(f"{nome_log}: errore imprevisto: {e}")
         return pd.DataFrame()
 
 
-# ---------------- UPLOAD ----------------
+# ------------------------------------------------------------------
+# UPLOAD FILE
+# ------------------------------------------------------------------
 file_istituti = st.file_uploader("Carica file ISTITUTI", type="csv")
 file_complessi = st.file_uploader("Carica file INTERVENTI", type="csv")
 
@@ -49,12 +74,14 @@ if file_istituti and file_complessi:
     if istituti.empty or complessi.empty:
         st.stop()
 
-    # ---------------- NORMALIZZO NOMI COLONNE ----------------
-    # Mantengo una copia originale e creo anche una versione "pulita" per lavorare
-    complessi.columns = complessi.columns.str.strip()
+    # ------------------------------------------------------------------
+    # NORMALIZZO NOMI COLONNE
+    # ------------------------------------------------------------------
     istituti.columns = istituti.columns.str.strip()
+    complessi.columns = complessi.columns.str.strip()
 
-    # Rinomino le colonne chiave dei complessi in nomi "semplici"
+    # INTERVENTI: mappo i nomi reali in nomi "comodi"
+    # (da quello che hai incollato)
     rename_map_complessi = {
         "Determina": "determina",
         "Manutenzioni": "manutenzioni",
@@ -63,17 +90,17 @@ if file_istituti and file_complessi:
     }
     complessi = complessi.rename(columns=rename_map_complessi)
 
-    # Per gli istituti assumo che esistano almeno:
-    # - Nome Istituto
-    # - Comune  (se il CSV ISTITUTI ha nome diverso, adattiamo)
+    # ISTITUTI: assumo colonne "Nome Istituto" e "comune"/"Comune"
     rename_map_istituti = {
         "Nome Istituto": "nome_istituto",
-        "comune": "comune",   # se la colonna si chiama già 'comune' non cambia nulla
         "Comune": "comune",
+        "comune": "comune",
     }
     istituti = istituti.rename(columns=rename_map_istituti)
 
-    # ---------------- CONTROLLI COLONNE ----------------
+    # ------------------------------------------------------------------
+    # CONTROLLI COLONNE OBBLIGATORIE
+    # ------------------------------------------------------------------
     colonne_necessarie_complessi = [
         "determina",
         "manutenzioni",
@@ -93,14 +120,20 @@ if file_istituti and file_complessi:
         st.write("Colonne ISTITUTI trovate:", list(istituti.columns))
         st.stop()
 
-    # ---------------- NORMALIZZAZIONE ----------------
-    complessi["determina_norm"] = complessi["determina"].astype(str).str.strip().str.lower()
+    # ------------------------------------------------------------------
+    # NORMALIZZAZIONE DATI
+    # ------------------------------------------------------------------
+    complessi["determina_norm"] = (
+        complessi["determina"].astype(str).str.strip().str.lower()
+    )
     complessi["manut_flag"] = complessi["manutenzioni"].astype(str).str.lower().eq("vero")
 
-    # ---------------- DEDUPLICAZIONE ----------------
+    # DEDUPLICAZIONE per determina + manutenzione
     complessi = complessi.drop_duplicates(subset=["determina_norm", "manut_flag"])
 
-    # ---------------- FILTRI ----------------
+    # ------------------------------------------------------------------
+    # FILTRI LATERALI
+    # ------------------------------------------------------------------
     st.sidebar.header("🔎 Filtri")
 
     comuni = sorted(istituti["comune"].dropna().unique())
@@ -108,7 +141,7 @@ if file_istituti and file_complessi:
 
     filtro_manut = st.sidebar.selectbox(
         "Tipo intervento",
-        ["Tutti", "Solo manutenzioni", "Solo altri"]
+        ["Tutti", "Solo manutenzioni", "Solo altri"],
     )
 
     df = complessi.copy()
@@ -126,17 +159,21 @@ if file_istituti and file_complessi:
         st.warning("Nessun intervento corrisponde ai filtri selezionati.")
         st.stop()
 
-    # ---------------- MAPPA ----------------
+    # ------------------------------------------------------------------
+    # MAPPA
+    # ------------------------------------------------------------------
     st.header("🌍 Mappa istituti")
 
     mappa_df = istituti.copy()
-    # Placeholder coordinate
+    # Placeholder coordinate (sostituibili con lat/lon reali se le hai)
     mappa_df["lat"] = 41.9
     mappa_df["lon"] = 12.5
 
     st.map(mappa_df[["lat", "lon"]])
 
-    # ---------------- STATISTICHE GLOBALI ----------------
+    # ------------------------------------------------------------------
+    # STATISTICHE GLOBALI
+    # ------------------------------------------------------------------
     st.header("📊 Statistiche globali")
 
     interventi = df.groupby("nome_istituto").size()
@@ -151,15 +188,19 @@ if file_istituti and file_complessi:
         manut = df[df["manut_flag"]].shape[0]
         altri = df.shape[0] - manut
 
-        pie = pd.DataFrame({
-            "Tipo": ["Manutenzioni", "Altri"],
-            "Valore": [manut, altri]
-        }).set_index("Tipo")
+        pie = pd.DataFrame(
+            {
+                "Tipo": ["Manutenzioni", "Altri"],
+                "Valore": [manut, altri],
+            }
+        ).set_index("Tipo")
 
         st.subheader("Distribuzione")
         st.bar_chart(pie)
 
-    # ---------------- DETTAGLIO ISTITUTO ----------------
+    # ------------------------------------------------------------------
+    # DETTAGLIO ISTITUTO
+    # ------------------------------------------------------------------
     st.header("🏫 Dettaglio istituto")
 
     istituti_unici = df["nome_istituto"].dropna().unique()
@@ -167,10 +208,7 @@ if file_istituti and file_complessi:
         st.warning("Nessun istituto disponibile per il dettaglio.")
         st.stop()
 
-    istituto_sel = st.selectbox(
-        "Seleziona istituto",
-        sorted(istituti_unici)
-    )
+    istituto_sel = st.selectbox("Seleziona istituto", sorted(istituti_unici))
 
     if istituto_sel:
         df_sel = df[df["nome_istituto"] == istituto_sel]
@@ -186,14 +224,18 @@ if file_istituti and file_complessi:
             manut = df_sel[df_sel["manut_flag"]].shape[0]
             altri = len(df_sel) - manut
 
-            pie = pd.DataFrame({
-                "Tipo": ["Manutenzioni", "Altri"],
-                "Valore": [manut, altri]
-            }).set_index("Tipo")
+            pie = pd.DataFrame(
+                {
+                    "Tipo": ["Manutenzioni", "Altri"],
+                    "Valore": [manut, altri],
+                }
+            ).set_index("Tipo")
 
             st.bar_chart(pie)
 
-        # ---------------- ELENCO INTERVENTI ----------------
+        # ------------------------------------------------------------------
+        # ELENCO INTERVENTI
+        # ------------------------------------------------------------------
         st.subheader("📋 Elenco interventi")
 
         for _, row in df_sel.iterrows():
@@ -202,7 +244,9 @@ if file_istituti and file_complessi:
                 testo += " 🟢 Manutenzione"
             st.write(testo)
 
-        # ---------------- PDF ----------------
+        # ------------------------------------------------------------------
+        # PDF
+        # ------------------------------------------------------------------
         def crea_pdf(data, nome):
             buffer = BytesIO()
             doc = SimpleDocTemplate(buffer)
@@ -229,7 +273,7 @@ if file_istituti and file_complessi:
             label="📄 Scarica report PDF",
             data=pdf,
             file_name=f"report_{istituto_sel}.pdf",
-            mime="application/pdf"
+            mime="application/pdf",
         )
 else:
     st.info("Carica entrambi i file CSV per continuare.")
