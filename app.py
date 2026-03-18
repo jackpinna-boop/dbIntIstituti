@@ -34,6 +34,7 @@ st.markdown(
     [data-testid="stAppViewContainer"] {{
         background: linear-gradient(135deg, {PRIMARY_EXTRA_LIGHT} 0%, #FFFFFF 40%, {PRIMARY_EXTRA_LIGHT} 100%);
     }}
+
     .sulcis-main-header {{
         display:flex;
         align-items:center;
@@ -52,6 +53,7 @@ st.markdown(
         opacity:0.9;
         margin-top:0.2rem;
     }}
+
     .sulcis-card {{
         background: linear-gradient(135deg, #FFFFFF 0%, {PRIMARY_EXTRA_LIGHT} 100%);
         border-radius: 0.75rem;
@@ -59,11 +61,13 @@ st.markdown(
         margin-bottom: 1rem;
         border: 1px solid rgba(107,230,0,0.25);
     }}
+
     .sulcis-section-title {{
         font-weight: 600;
         color: #1E2A10;
         margin-bottom: 0.3rem;
     }}
+
     h1, h2, h3 {{
         margin-top: 0.4rem;
         margin-bottom: 0.4rem;
@@ -73,6 +77,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Header con logo + testo
 col_logo, col_title = st.columns([1, 6])
 with col_logo:
     st.image(LOGO_URL, width=70)
@@ -89,13 +94,14 @@ with col_title:
         unsafe_allow_html=True,
     )
 
-
 # -------------------------------------------------------
-# HELPER: DataFrame deduplicato per riepiloghi economici
-# Regola: stessa determina_norm + stesso importo_stanziato = conta una sola volta
+# HELPER: DF per riepiloghi economici
+# regola: stessa (codice, determina_norm, importo_stanziato) = 1 volta
 # -------------------------------------------------------
-def df_riepilogo(df_source):
-    return df_source.drop_duplicates(subset=["determina_norm", "importo_stanziato"])
+def df_riepilogo(df_source: pd.DataFrame) -> pd.DataFrame:
+    if not {"codice", "determina_norm", "importo_stanziato"}.issubset(df_source.columns):
+        return df_source
+    return df_source.drop_duplicates(subset=["codice", "determina_norm", "importo_stanziato"])
 
 
 # -------------------------------------------------------
@@ -127,7 +133,6 @@ def load_uploaded_csv(uploaded_file, nome_log="file"):
     except Exception as e:
         st.error(f"{nome_log}: errore imprevisto: {e}")
         return pd.DataFrame()
-
 
 # -------------------------------------------------------
 # UPLOAD FILE
@@ -177,12 +182,12 @@ if "tipologia_intervento" not in interventi.columns:
 # -------------------------------------------------------
 for col in ["codice", "nome_istituto", "comune"]:
     if col not in istituti.columns:
-        st.error(f"File ISTITUTI: colonna '{col}' mancante. Trovate: {list(istituti.columns)}")
+        st.error(f"File ISTITUTI: colonna '{col}' mancante. Colonne trovate: {list(istituti.columns)}")
         st.stop()
 
 for col in ["codice", "denominazione_intervento", "determina", "manutenzioni", "tipologia_intervento"]:
     if col not in interventi.columns:
-        st.error(f"File INTERVENTI: colonna '{col}' mancante. Trovate: {list(interventi.columns)}")
+        st.error(f"File INTERVENTI: colonna '{col}' mancante. Colonne trovate: {list(interventi.columns)}")
         st.stop()
 
 # -------------------------------------------------------
@@ -198,7 +203,7 @@ df = interventi.merge(
 )
 
 # -------------------------------------------------------
-# NORMALIZZAZIONE
+# NORMALIZZAZIONE / FLAG
 # -------------------------------------------------------
 df["determina_norm"] = df["determina"].astype(str).str.strip().str.lower()
 df["manut_flag"] = df["manutenzioni"].astype(str).str.lower().eq("vero")
@@ -237,7 +242,9 @@ filtro_tipologia = st.sidebar.multiselect(
     "Tipologia di intervento",
     sorted(df["tipologia_intervento"].dropna().unique())
 )
+
 filtro_manut = st.sidebar.selectbox("Manutenzioni", ["Tutti", "Solo manutenzioni", "Solo altri"])
+
 filtro_comune = st.sidebar.multiselect(
     "Comune", sorted(df["comune"].dropna().unique())
 )
@@ -264,26 +271,44 @@ def fmt_eur(x):
         return "-"
     return f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-
 # -------------------------------------------------------
 # PAGINA HOME
 # -------------------------------------------------------
 if pagina == "Home":
     st.markdown('<div class="sulcis-card">', unsafe_allow_html=True)
-    st.markdown('<div class="sulcis-section-title">🏠 Dashboard generale – Provincia del Sulcis Iglesiente</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sulcis-section-title">🏠 Dashboard generale – Provincia del Sulcis Iglesiente</div>',
+        unsafe_allow_html=True,
+    )
 
-    # Tabella completa
+    # Elenco interventi filtrati
     st.subheader("Elenco interventi (filtrati)")
-    colonne_tab = ["nome_istituto", "codice", "comune", "tipologia_intervento",
-                   "manutenzioni", "rup", "denominazione_intervento", "determina"]
+    colonne_tab = [
+        "nome_istituto",
+        "codice",
+        "comune",
+        "tipologia_intervento",
+        "manutenzioni",
+        "rup",
+        "denominazione_intervento",
+        "determina",
+    ]
     if "importo_stanziato" in df_filt.columns:
         colonne_tab.append("importo_stanziato")
+
     col_cfg = {}
     if "importo_stanziato" in df_filt.columns:
-        col_cfg["importo_stanziato"] = st.column_config.NumberColumn("Importo stanziato", format="€ %,.2f")
-    st.dataframe(df_filt[colonne_tab], use_container_width=True, column_config=col_cfg or None)
+        col_cfg["importo_stanziato"] = st.column_config.NumberColumn(
+            "Importo stanziato", format="€ %,.2f"
+        )
 
-    # Grafici
+    st.dataframe(
+        df_filt[colonne_tab],
+        use_container_width=True,
+        column_config=col_cfg or None,
+    )
+
+    # Grafici generali
     col_g1, col_g2 = st.columns(2)
     with col_g1:
         st.subheader("Numero interventi per istituto")
@@ -292,58 +317,82 @@ if pagina == "Home":
         st.subheader("Manutenzioni vs altri")
         n_m = df_filt[df_filt["manut_flag"]].shape[0]
         n_a = df_filt.shape[0] - n_m
-        st.bar_chart(pd.DataFrame({"Tipo": ["Manutenzioni", "Altri"], "Valore": [n_m, n_a]}).set_index("Tipo"))
+        st.bar_chart(
+            pd.DataFrame({"Tipo": ["Manutenzioni", "Altri"], "Valore": [n_m, n_a]}).set_index("Tipo")
+        )
 
-    # -------------------------------------------------------
-    # RIEPILOGO ECONOMICO
-    # Il DataFrame usato per le SOMME usa la dedup:
-    # stessa (determina_norm + importo_stanziato) = contata una sola volta
-    # -------------------------------------------------------
+    # Riepilogo economico
     st.subheader("💶 Riepilogo economico (importo stanziato)")
 
     if "importo_stanziato" in df_filt.columns:
 
-        df_rip = df_riepilogo(df_filt)  # dedup per i calcoli
+        # DF deduplicato per le somme: stessa determina+importo per stesso istituto = 1
+        df_rip = df_riepilogo(df_filt)
 
         col_e1, col_e2 = st.columns(2)
 
+        # Somma per istituto
         with col_e1:
             st.markdown("**Somma importi per istituto**")
             s_ist = (
                 df_rip.groupby("nome_istituto")["importo_stanziato"]
-                .sum().sort_values(ascending=False).reset_index()
+                .sum()
+                .sort_values(ascending=False)
+                .reset_index()
             )
             s_ist["Importo (€)"] = s_ist["importo_stanziato"].map(fmt_eur)
-            st.dataframe(s_ist[["nome_istituto", "Importo (€)"]], use_container_width=True)
+            st.dataframe(
+                s_ist[["nome_istituto", "Importo (€)"]],
+                use_container_width=True,
+            )
 
+        # Somma per tipologia (incluso Accordo/Servizio) con regola duplicati
         with col_e2:
-            st.markdown("**Somma importi per tipologia**")
+            st.markdown("**Somma importi per tipologia (dedup determina/importo per istituto)**")
             s_tip = (
                 df_rip.groupby("tipologia_intervento")["importo_stanziato"]
-                .sum().sort_values(ascending=False).reset_index()
+                .sum()
+                .sort_values(ascending=False)
+                .reset_index()
             )
             s_tip["Importo (€)"] = s_tip["importo_stanziato"].map(fmt_eur)
-            st.dataframe(s_tip[["tipologia_intervento", "Importo (€)"]], use_container_width=True)
+            st.dataframe(
+                s_tip[["tipologia_intervento", "Importo (€)"]],
+                use_container_width=True,
+            )
 
+        # Somma per manutenzione
         st.markdown("**Somma importi per manutenzione (VERO / FALSO)**")
-        s_man = df_rip.groupby("manut_flag")["importo_stanziato"].sum().reset_index()
+        s_man = (
+            df_rip.groupby("manut_flag")["importo_stanziato"]
+            .sum()
+            .reset_index()
+        )
         s_man["manutenzione"] = s_man["manut_flag"].map(
             {True: "VERO (manutenzioni)", False: "FALSO (altri interventi)"}
         )
         s_man["Importo (€)"] = s_man["importo_stanziato"].map(fmt_eur)
-        st.dataframe(s_man[["manutenzione", "Importo (€)"]], use_container_width=True)
+        st.dataframe(
+            s_man[["manutenzione", "Importo (€)"]],
+            use_container_width=True,
+        )
 
-        st.markdown("**Totale importo per determina** *(stessa determina + stesso importo = contata una volta)*")
+        # Totale per determina (stessa determina_norm + importo, ma per istituto già dedup)
+        st.markdown("**Totale importo stanziato per determina**")
         s_det = (
             df_rip.groupby(["determina_norm", "determina"])["importo_stanziato"]
-            .sum().reset_index()
+            .sum()
+            .reset_index()
             .sort_values("importo_stanziato", ascending=False)
         )
         s_det["Importo (€)"] = s_det["importo_stanziato"].map(fmt_eur)
-        st.dataframe(s_det[["determina", "Importo (€)"]], use_container_width=True)
+        st.dataframe(
+            s_det[["determina", "Importo (€)"]],
+            use_container_width=True,
+        )
 
         totale_generale = df_rip["importo_stanziato"].sum()
-        st.success(f"**Totale generale stanziato: {fmt_eur(totale_generale)}**")
+        st.success(f"**Totale generale stanziato (dedup per istituto/determina/importo): {fmt_eur(totale_generale)}**")
 
     else:
         st.info("Colonna 'importo stanziato' non presente.")
@@ -371,33 +420,53 @@ else:
         with c2:
             st.markdown(f"**Indirizzo:** {row_ist.iloc[0].get('indirizzo', '')}")
 
-    colonne_base = ["tipologia_intervento", "manutenzioni", "rup", "denominazione_intervento", "determina"]
+    colonne_base = [
+        "tipologia_intervento",
+        "manutenzioni",
+        "rup",
+        "denominazione_intervento",
+        "determina",
+    ]
     if "importo_stanziato" in df_ist.columns:
         colonne_base.append("importo_stanziato")
 
     col_cfg_ist = {}
     if "importo_stanziato" in df_ist.columns:
-        col_cfg_ist["importo_stanziato"] = st.column_config.NumberColumn("Importo stanziato", format="€ %,.2f")
+        col_cfg_ist["importo_stanziato"] = st.column_config.NumberColumn(
+            "Importo stanziato", format="€ %,.2f"
+        )
 
-    # 1) TUTTI
+    # 1) tutti
     st.subheader("📋 Interventi (tutti)")
-    st.dataframe(df_ist[colonne_base], use_container_width=True, column_config=col_cfg_ist or None)
+    st.dataframe(
+        df_ist[colonne_base],
+        use_container_width=True,
+        column_config=col_cfg_ist or None,
+    )
 
-    # 2) MANUTENZIONI (VERO)
+    # 2) manutenzioni
     st.subheader("🛠️ Interventi di manutenzione (VERO)")
     df_m = df_ist[df_ist["manut_flag"]]
     if df_m.empty:
         st.info("Nessuna manutenzione per questo istituto.")
     else:
-        st.dataframe(df_m[colonne_base], use_container_width=True, column_config=col_cfg_ist or None)
+        st.dataframe(
+            df_m[colonne_base],
+            use_container_width=True,
+            column_config=col_cfg_ist or None,
+        )
 
-    # 3) NON MANUTENZIONE (FALSO)
+    # 3) non manutenzioni
     st.subheader("📋 Interventi diversi dalle manutenzioni (FALSO)")
     df_nm = df_ist[~df_ist["manut_flag"]]
     if df_nm.empty:
         st.info("Nessun intervento non di manutenzione per questo istituto.")
     else:
-        st.dataframe(df_nm[colonne_base], use_container_width=True, column_config=col_cfg_ist or None)
+        st.dataframe(
+            df_nm[colonne_base],
+            use_container_width=True,
+            column_config=col_cfg_ist or None,
+        )
 
     # Grafici istituto
     st.subheader("📊 Grafici istituto")
@@ -414,14 +483,15 @@ else:
         )
 
     # ---------------------------------------------------
-    # PDF
+    # PDF ISTITUTO
     # ---------------------------------------------------
-    def crea_pdf(data, nome):
+    def crea_pdf(data: pd.DataFrame, nome: str) -> BytesIO:
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4)
         styles = getSampleStyleSheet()
         elements = []
 
+        # Logo
         try:
             resp = requests.get(LOGO_URL, timeout=5)
             if resp.status_code == 200:
@@ -437,25 +507,28 @@ else:
 
         n_tot = len(data)
         n_mn = data[data["manut_flag"]].shape[0]
-        elements.append(Paragraph(
-            f"Interventi totali: {n_tot} – Manutenzioni: {n_mn} – Altri: {n_tot - n_mn}",
-            styles["Normal"],
-        ))
+        elements.append(
+            Paragraph(
+                f"Interventi totali: {n_tot} – Manutenzioni: {n_mn} – Altri: {n_tot - n_mn}",
+                styles["Normal"],
+            )
+        )
         elements.append(Spacer(1, 12))
 
+        # Riepilogo economico istituto con stessa regola dedup
         if "importo_stanziato" in data.columns:
-            # Per il totale PDF usiamo la dedup sull'istituto
             data_rip = df_riepilogo(data)
             s_tot = data_rip["importo_stanziato"].sum()
             s_mn = data_rip[data_rip["manut_flag"]]["importo_stanziato"].sum()
             s_al = data_rip[~data_rip["manut_flag"]]["importo_stanziato"].sum()
             txt = (
-                f"Importo stanziato totale: {fmt_eur(s_tot)} "
+                f"Importo stanziato totale (dedup determina/importo): {fmt_eur(s_tot)} "
                 f"(Manutenzioni: {fmt_eur(s_mn)} – Altri: {fmt_eur(s_al)})"
             )
             elements.append(Paragraph(txt, styles["Normal"]))
             elements.append(Spacer(1, 12))
 
+        # Tabella dettagli interventi
         hs = styles["Heading5"]
         cs = styles["Normal"]
         cs.fontSize = 8
@@ -496,6 +569,7 @@ else:
             ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
         ]))
         elements.append(t)
+
         doc.build(elements)
         buffer.seek(0)
         return buffer
