@@ -394,9 +394,9 @@ if pagina == "Home":
         st.success(f"**Totale generale stanziato (dedup per istituto/determina/importo): {fmt_eur(totale_generale)}**")
 
         # ---------------------------------------------------
-        # DETERMINE ACCORDO/SERVIZIO con scuole coinvolte
+        # DETERMINE ACCORDO/SERVIZIO con scuole coinvolte e quota per scuola
         # ---------------------------------------------------
-        st.subheader("📑 Determine Accordo/Servizio (una sola volta per determina/importo/istituto)")
+        st.subheader("📑 Determine Accordo/Servizio (pro-quota per scuola)")
 
         df_acc = df_filt[df_filt["tipologia_intervento"].str.lower() == "accordo/servizio"].copy()
 
@@ -421,15 +421,20 @@ if pagina == "Home":
                 .sort_values("importo_stanziato", ascending=False)
             )
 
-            det_acc["Importo (€)"] = det_acc["importo_stanziato"].map(fmt_eur)
+            # quota per scuola = importo totale / numero_scuole
+            det_acc["importo_per_scuola"] = det_acc["importo_stanziato"] / det_acc["numero_scuole"]
+
+            det_acc["Importo totale (€)"] = det_acc["importo_stanziato"].map(fmt_eur)
+            det_acc["Quota per scuola (€)"] = det_acc["importo_per_scuola"].map(fmt_eur)
 
             st.dataframe(
-                det_acc[["determina", "numero_scuole", "Importo (€)"]],
+                det_acc[["determina", "numero_scuole", "Importo totale (€)", "Quota per scuola (€)"]],
                 use_container_width=True,
             )
 
-            tot_acc = df_acc_uni["importo_stanziato"].sum()
-            st.success(f"Totale Accordo/Servizio (dedup determine): {fmt_eur(tot_acc)}")
+            # Totale complessivo delle quote per scuola (somma delle quote per determina)
+            tot_quota = det_acc["importo_per_scuola"].sum()
+            st.success(f"Totale complessivo quote Accordo/Servizio (somma quote per scuola): {fmt_eur(tot_quota)}")
 
     else:
         st.info("Colonna 'importo stanziato' non presente.")
@@ -455,7 +460,7 @@ else:
         with c1:
             st.markdown(f"**Comune:** {row_ist.iloc[0].get('comune', '')}")
         with c2:
-            st.markdown(f"**Indirizzo:** {row_ist.iloc[0].get('indirizzo', '')}")
+            st.markmondown(f"**Indirizzo:** {row_ist.iloc[0].get('indirizzo', '')}")
 
     colonne_base = [
         "tipologia_intervento",
