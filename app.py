@@ -3,18 +3,24 @@ import pandas as pd
 import re
 from io import BytesIO
 
-import requests
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-    Image as RLImage,
-)
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+# Provo a importare reportlab solo se disponibile
+try:
+    import requests
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        Image as RLImage,
+    )
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    REPORTLAB_AVAILABLE = True
+except ModuleNotFoundError:
+    REPORTLAB_AVAILABLE = False
+
 from pandas.errors import EmptyDataError, ParserError
 
 # -------------------------------------------------------
@@ -361,6 +367,24 @@ if pagina == "Home":
             )
 
         # ---------------------------------------------------
+        # Riepilogo: numero di istituti coinvolti per tipologia
+        # ---------------------------------------------------
+        st.subheader("🏫 Istituti coinvolti per tipologia")
+
+        istituti_per_tip = (
+            df_rip.groupby("tipologia_intervento")["nome_istituto"]
+            .nunique()
+            .reset_index()
+            .rename(columns={"nome_istituto": "Numero istituti"})
+            .sort_values("Numero istituti", ascending=False)
+        )
+
+        st.dataframe(
+            istituti_per_tip,
+            use_container_width=True,
+        )
+
+        # ---------------------------------------------------
         # DETERMINE ACCORDO/SERVIZIO con scuole coinvolte e quota per scuola
         # ---------------------------------------------------
         st.subheader("📑 Determine Accordo/Servizio (pro-quota per scuola)")
@@ -521,103 +545,170 @@ else:
         )
 
     # ---------------------------------------------------
-    # PDF ISTITUTO
+    # Riepilogo per tipologia (istituto corrente)
     # ---------------------------------------------------
-    def crea_pdf(data: pd.DataFrame, nome: str) -> BytesIO:
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-        styles = getSampleStyleSheet()
-        elements = []
+    st.subheader("📌 Riepilogo interventi per tipologia (istituto)")
 
-        # Logo
-        try:
-            resp = requests.get(LOGO_URL, timeout=5)
-            if resp.status_code == 200:
-                logo = RLImage(BytesIO(resp.content), width=40, height=40)
-                elements.append(logo)
-                elements.append(Spacer(1, 6))
-        except Exception:
-            pass
+    riepilogo_tip_ist = (
+        df_ist.groupby("tipologia_intervento")
+        .size()
+        .reset_index(name="Numero interventi")
+        .sort_values("Numero interventi", ascending=False)
+    )
 
-        elements.append(Paragraph(f"Report Istituto: {nome}", styles["Title"]))
-        elements.append(Paragraph("Provincia del Sulcis Iglesiente", styles["Normal"]))
-        elements.append(Spacer(1, 12))
+    st.dataframe(
+        riepilogo_tip_ist,
+        use_container_width=True,
+    )
 
-        n_tot = len(data)
-        n_mn = data[data["manut_flag"]].shape[0]
-        elements.append(
-            Paragraph(
-                f"Interventi totali: {n_tot} – Manutenzioni: {n_mn} – Altri: {n_tot - n_mn}",
-                styles["Normal"],
-            )
-        )
-        elements.append(Spacer(1, 12))
+    # ---------------------------------------------------
+    # PDF ISTITUTO (OPZIONALE, con logica quote Accordo/Servizio)
+    # ---------------------------------------------------
+    if REPORTLAB_AVAILABLE:
+        def crea_pdf(data: pd.DataFrame, nome: str) -> BytesIO:
+            buffer = BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4)
+            styles = getSampleStyleSheet()
+            elements = []
 
-        # Riepilogo economico istituto con stessa regola dedup
-        if "importo_stanziato" in data.columns:
-            data_rip = df_riepilogo(data)
-            s_tot = data_rip["importo_stanziato"].sum()
-            s_mn = data_rip[data_rip["manut_flag"]]["importo_stanziato"].sum()
-            s_al = data_rip[~data_rip["manut_flag"]]["importo_stanziato"].sum()
-            txt = (
-                f"Importo stanziato totale (dedup determina/importo): {fmt_eur(s_tot)} "
-                f"(Manutenzioni: {fmt_eur(s_mn)} – Altri: {fmt_eur(s_al)})"
-            )
-            elements.append(Paragraph(txt, styles["Normal"]))
+            # Logo
+            try:
+                resp = requests.get(LOGO_URL, timeout=5)
+                if resp.status_code == 200:
+                    logo = RLImage(BytesIO(resp.content), width=40, height=40)
+                    elements.append(logo)
+                    elements.append(Spacer(1, 6))
+            except Exception:
+                pass
+
+            elements.append(Paragraph(f"Report Istituto: {nome}", styles["Title"]))
+            elements.append(Paragraph("Provincia del Sulcis Iglesiente", styles["Normal"]))
             elements.append(Spacer(1, 12))
 
-        # Tabella dettagli interventi
-        hs = styles["Heading5"]
-        cs = styles["Normal"]
-        cs.fontSize = 8
+            # Dedup locale per questo istituto
+            data_local = data.copy()
+            if "importo_stanziato" in data_local.columns:
+                data_local["determina_norm"] = data_local["determina"].astype(str).str.strip().str.lower()
+                data_rip_ist = df_riepilogo(data_local)
+            else:
+                data_rip_ist = data_local
 
-        table_data = [[
-            Paragraph("Tipologia", hs),
-            Paragraph("Manut.", hs),
-            Paragraph("RUP", hs),
-            Paragraph("Intervento", hs),
-            Paragraph("Determina", hs),
-            Paragraph("Importo", hs),
-        ]]
+            # Quote Accordo/Servizio per questo istituto (coerenti con la Home)
+            quota_acc_manut = 0.0
+            if "importo_stanziato" in data_rip_ist.columns:
+                df_acc_all = df_filt[df_filt["tipologia_intervento"].str.lower() == "accordo/servizio"].copy()
+                if not df_acc_all.empty:
+                    df_acc_all["determina_norm"] = df_acc_all["determina"].astype(str).str.strip().str.lower()
+                    df_acc_uni_all = df_acc_all.drop_duplicates(
+                        subset=["codice", "determina_norm", "importo_stanziato"]
+                    )
+                    det_acc_all = (
+                        df_acc_uni_all.groupby(["determina_norm", "determina"])
+                        .agg(
+                            importo_stanziato=("importo_stanziato", "sum"),
+                            numero_scuole=("codice", "nunique"),
+                        )
+                        .reset_index()
+                    )
+                    det_acc_all["importo_per_scuola"] = (
+                        det_acc_all["importo_stanziato"] / det_acc_all["numero_scuole"]
+                    )
 
-        for _, row in data.iterrows():
-            imp_txt = fmt_eur(row["importo_stanziato"]) if "importo_stanziato" in row and pd.notna(row["importo_stanziato"]) else "-"
-            table_data.append([
-                Paragraph(str(row["tipologia_intervento"]), cs),
-                Paragraph("Sì" if row["manut_flag"] else "No", cs),
-                Paragraph(str(row.get("rup", "")), cs),
-                Paragraph(str(row["denominazione_intervento"]), cs),
-                Paragraph(str(row["determina"]), cs),
-                Paragraph(imp_txt, cs),
-            ])
+                    det_acc_merge = df_acc_all.merge(
+                        det_acc_all[["determina_norm", "importo_per_scuola"]],
+                        on="determina_norm",
+                        how="left",
+                        suffixes=("", "_quota"),
+                    )
 
-        t = Table(table_data, repeatRows=1, colWidths=[65, 30, 60, 200, 90, 80])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, 0), 9),
-            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-            ("ALIGN", (1, 1), (1, -1), "CENTER"),
-            ("ALIGN", (5, 1), (5, -1), "RIGHT"),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 3),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-        ]))
-        elements.append(t)
+                    df_acc_ist = det_acc_merge[det_acc_merge["nome_istituto"] == nome]
+                    quota_acc_manut = df_acc_ist["importo_per_scuola"].sum()
 
-        doc.build(elements)
-        buffer.seek(0)
-        return buffer
+            # Riepilogo numerico di base
+            n_tot = len(data_local)
+            n_mn = data_local[data_local["manut_flag"]].shape[0]
+            elements.append(
+                Paragraph(
+                    f"Interventi totali: {n_tot} – Manutenzioni: {n_mn} – Altri: {n_tot - n_mn}",
+                    styles["Normal"],
+                )
+            )
+            elements.append(Spacer(1, 12))
 
-    pdf = crea_pdf(df_ist, istituto_sel)
-    st.download_button(
-        label="📄 Scarica report PDF istituto",
-        data=pdf,
-        file_name=f"report_{istituto_sel}.pdf",
-        mime="application/pdf",
-    )
+            # Riepilogo economico istituto con stessa logica della Home
+            if "importo_stanziato" in data_rip_ist.columns:
+                # Somma NON manutenzioni (sempre raw dedup)
+                s_al_raw = data_rip_ist[~data_rip_ist["manut_flag"]]["importo_stanziato"].sum()
+
+                # Somma manutenzioni: sostituisco con quota_acc_manut
+                s_mn_eff = quota_acc_manut
+
+                s_tot_eff = s_mn_eff + s_al_raw
+
+                txt = (
+                    f"Importo stanziato totale (con quote Accordo/Servizio): {fmt_eur(s_tot_eff)} "
+                    f"(Manutenzioni: {fmt_eur(s_mn_eff)} – Altri: {fmt_eur(s_al_raw)})"
+                )
+                elements.append(Paragraph(txt, styles["Normal"]))
+                elements.append(Spacer(1, 12))
+
+            # Tabella dettagli interventi (importi raw, come da CSV/filtri)
+            hs = styles["Heading5"]
+            cs = styles["Normal"]
+            cs.fontSize = 8
+
+            table_data = [[
+                Paragraph("Tipologia", hs),
+                Paragraph("Manut.", hs),
+                Paragraph("RUP", hs),
+                Paragraph("Intervento", hs),
+                Paragraph("Determina", hs),
+                Paragraph("Importo", hs),
+            ]]
+
+            for _, row in data_local.iterrows():
+                if "importo_stanziato" in row and pd.notna(row["importo_stanziato"]):
+                    imp_txt = fmt_eur(row["importo_stanziato"])
+                else:
+                    imp_txt = "-"
+                table_data.append([
+                    Paragraph(str(row["tipologia_intervento"]), cs),
+                    Paragraph("Sì" if row["manut_flag"] else "No", cs),
+                    Paragraph(str(row.get("rup", "")), cs),
+                    Paragraph(str(row["denominazione_intervento"]), cs),
+                    Paragraph(str(row["determina"]), cs),
+                    Paragraph(imp_txt, cs),
+                ])
+
+            t = Table(table_data, repeatRows=1, colWidths=[65, 30, 60, 200, 90, 80])
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 9),
+                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                ("ALIGN", (1, 1), (1, -1), "CENTER"),
+                ("ALIGN", (5, 1), (5, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+            ]))
+            elements.append(t)
+
+            doc.build(elements)
+            buffer.seek(0)
+            return buffer
+
+        pdf = crea_pdf(df_ist, istituto_sel)
+        st.download_button(
+            label="📄 Scarica report PDF istituto",
+            data=pdf,
+            file_name=f"report_{istituto_sel}.pdf",
+            mime="application/pdf",
+        )
+    else:
+        st.info("Generazione PDF disabilitata: modulo 'reportlab' non disponibile.")
 
     st.markdown('</div>', unsafe_allow_html=True)
